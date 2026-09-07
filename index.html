@@ -1365,7 +1365,7 @@ function orgChartHTML(){
 
   return `<div class="ocw" id="ocw"><div class="ocx" id="ocx"><svg viewBox="0 0 1220 605">${L.join("")}</svg>${B.join("")}</div></div>`;
 }
-function orgFit(){ const w = document.getElementById("ocw"), c = document.getElementById("ocx"); if(!w || !c) return; const k = Math.min(1, w.clientWidth / 1220); c.style.transform = `scale(${k})`; w.style.height = Math.round(605 * k) + "px"; }
+function orgFit(){ const w = document.getElementById("ocw"), c = document.getElementById("ocx"); if(!w || !c) return; const k = w.clientWidth / 1220; /* ocupa todo el ancho disponible (Hugo, 07-sep-2026) */ c.style.transform = `scale(${k})`; w.style.height = Math.round(605 * k) + "px"; }
 window.addEventListener("resize", () => orgFit());
 AFTER.people = async function(){ orgFit(); };
 PAGES.people = async function(){
