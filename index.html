@@ -718,7 +718,7 @@ function renderNav(){
 let TASKS_BADGE = 0;
 function renderUserbox(){
   const roles = [];
-  if(isAdmin()) roles.push(`<span class="pill pur">Admin</span>`);
+  if(isAdmin()) roles.push(`<span class="pill pur">Admin operativo</span>`);
   if(isPartner()) roles.push(`<span class="pill navy">Socio</span>`);
   if(ME && ME.is_hr_admin) roles.push(`<span class="pill pur">Admin RRHH</span>`);
   if(canSeeAll() && !isAdmin() && !(ME && ME.is_hr_admin)) roles.push(`<span class="pill">Ve todas las reviews</span>`);
@@ -1786,10 +1786,10 @@ function editPerson(id){
     <div><label class="xs mut">Correo (login Microsoft)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Puesto</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
     <div><label class="xs mut">Equipo</label><select class="inp" id="p_team"><option value="">—</option>${Object.entries(TEAM_LABEL).map(([k,l])=>`<option value="${k}" ${p.team===k?"selected":""}>${l}</option>`).join("")}</select></div><div><label class="xs mut">Fecha de inicio</label><input type="date" id="p_sd" value="${p.start_date||""}"></div></div>
    <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Socio <span class="xs mut">(etiqueta y peso extra en la media ponderada)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Ve todas las reviews de la firma <span class="xs mut">(Todas las reviews, expedientes, auditoría)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Ve todas las reviews de la firma <span class="xs mut">(respuestas, expedientes y auditoría; es lo que tienen los 5 socios)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Se le evalúa <span class="xs mut">(entra como persona evaluada en los ciclos)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_hr" ${p.is_hr_admin?"checked":""} onchange="if(this.checked) document.getElementById('p_sees').checked = true"><label>Admin de RRHH <span class="xs mut">(ve las respuestas y resúmenes de todo el mundo)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Administra la app <span class="xs mut">(ciclos, asignaciones y personas; no ve respuestas)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_hr" ${p.is_hr_admin?"checked":""} onchange="if(this.checked) document.getElementById('p_sees').checked = true"><label>Admin de RRHH <span class="xs mut">(ve las respuestas y los resúmenes de todo el mundo; no gestiona la app)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin operativo de la app <span class="xs mut">(crea ciclos, asigna, gestiona personas y hace pruebas; no ve respuestas)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_active" ${p.active!==false?"checked":""}><label>Activa (puede entrar y recibe asignaciones)</label></div>
    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="savePerson(${id?`'${id}'`:"null"})">Guardar</button></div>`);
 }
