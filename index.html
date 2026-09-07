@@ -417,29 +417,27 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .dist .d1 .box{height:190px}
 .res-note{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint)}
 
-/* ---------- Organigrama oficial (foto de Hugo, 07-sep-2026) ---------- */
-.oc{display:grid;gap:18px;color:var(--ink)}
-.oc-box{border:1px solid #cfd5df;border-radius:10px;background:#fff;padding:10px 12px 12px;box-shadow:var(--shadow);min-width:0}
-.oc-box.frame{border-width:2px;border-color:#b9c2d0}
-.oc-box.tint{background:#eef9f9;border-color:#bfe3e3}
-.oc-box.green{background:#eef8ee;border-color:#bfe0bf}
-.oc-title{text-align:center;font-weight:800;font-size:13px;color:var(--navy);text-decoration:underline;text-decoration-color:#0e2150;text-underline-offset:3px;margin-bottom:8px;letter-spacing:-.01em}
-.oc-title.small{font-size:12px}
-.oc-people{display:grid;gap:8px}
-.oc-people.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-people.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.oc-people.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.oc-people.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
-.oc-p{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:8px 6px;border:1px solid #e3e7ee;border-radius:9px;background:#f7f9fc;cursor:pointer;min-width:0}
-.oc-p:hover{border-color:#c7cdd9;background:#fff}
-.oc-p.ext{cursor:default;background:#fafbfd}
-.oc-p .n{font-weight:700;font-size:12px;line-height:1.2}
-.oc-p .r{font-size:10px;color:var(--muted);font-style:italic;line-height:1.25}
-.oc-p .av{margin-bottom:3px}
-.oc-row{display:grid;gap:18px;align-items:start}
-.oc-top{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
-.oc-main{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)}
-.oc-units{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.oc-sub{margin-top:10px;padding-top:10px;border-top:1px dashed #c9d0dc}
-.oc-conn{display:flex;justify-content:center}.oc-conn i{display:block;width:2px;height:16px;background:#b9c2d0}.oc-conn.dots i{background:repeating-linear-gradient(#b9c2d0 0 3px,transparent 3px 6px)}
-.oc-teams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}
+/* ---------- Organigrama oficial (foto de Hugo, 07-sep-2026): lienzo fijo 1220x605 escalado ---------- */
+.ocw{width:100%;overflow:hidden}
+.ocx{position:relative;width:1220px;height:605px;transform-origin:0 0;font-family:Inter,system-ui,sans-serif;color:#1f2a44}
+.ocx svg{position:absolute;inset:0;width:1220px;height:605px;pointer-events:none}
+.ocx .bx{position:absolute;box-sizing:border-box;border:1px solid #b9c2d0;border-radius:6px;background:#fff;box-shadow:0 1px 2px rgba(14,33,80,.08)}
+.ocx .bx.frame{border:2px solid #8f9bb0;background:#f3f4f7}
+.ocx .bx.frame2{border:1.5px solid #9aa5ba;background:#fff}
+.ocx .bx.panel{background:#eceff4;border-color:#d3d9e3}
+.ocx .bx.teal{background:#e6f5f5;border-color:#bfe0e0}
+.ocx .bx.green{background:#e9f6e9;border-color:#bfdcbf}
+.ocx .bx.ext{background:#f7f8fa}
+.ocx .bt{position:absolute;left:0;right:0;top:4px;text-align:center;font-weight:800;font-size:11.5px;color:#0e2150;text-decoration:underline;text-decoration-color:#0e2150;text-underline-offset:2px;line-height:1.2;padding:0 4px}
+.ocx .bt.sm{font-size:10.5px}
+.ocx .bt.teal{color:#0e7c86;text-decoration-color:#0e7c86}
+.ocx .bt.green{color:#2f7d32;text-decoration-color:#2f7d32}
+.ocx .pp{position:absolute;box-sizing:border-box;border:1px solid #d7dde6;border-radius:5px;background:#fff;text-align:center;padding:4px 3px;cursor:pointer;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.ocx .pp:hover{border-color:#8f9bb0;box-shadow:0 2px 6px rgba(14,33,80,.14)}
+.ocx .pp.ext{cursor:default}
+.ocx .pp .n{font-weight:700;font-size:10.5px;line-height:1.15;color:#1f2a44}
+.ocx .pp .r{font-size:8.5px;font-style:italic;color:#5c6675;line-height:1.15;margin-top:1px}
+.ocx .pp.lg .n{font-size:11px}.ocx .pp.lg .r{font-size:9px}
 @media(max-width:1100px){.oc-top,.oc-main{grid-template-columns:1fr}.oc-units{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-teams{grid-template-columns:1fr}}
 </style>
 </head>
@@ -722,7 +720,8 @@ function renderUserbox(){
   const roles = [];
   if(isAdmin()) roles.push(`<span class="pill pur">Admin</span>`);
   if(isPartner()) roles.push(`<span class="pill navy">Socio</span>`);
-  if(canSeeAll() && !isAdmin()) roles.push(`<span class="pill">Ve todas las reviews</span>`);
+  if(ME && ME.is_hr_admin) roles.push(`<span class="pill pur">Admin RRHH</span>`);
+  if(canSeeAll() && !isAdmin() && !(ME && ME.is_hr_admin)) roles.push(`<span class="pill">Ve todas las reviews</span>`);
   if(hasLeadRole()) roles.push(`<span class="pill ok">Lead reviewer</span>`);
   document.getElementById("userbox").innerHTML = `
     <label>${DEV_MODE ? "Usuario" : "Conectado"}</label>
@@ -772,27 +771,7 @@ async function refreshLeadCache(){
 
 /* ---------- MIS TAREAS ---------- */
 let PICKED = {};
-// Avisos de calendario (Hugo, 07-sep-2026): hoy empieza, quedan X días, hoy cierra, cerrado, ya puedes ver tus resultados
-function cycleBanners(all, rels){
-  const today = new Date(); today.setHours(0,0,0,0);
-  const d = s => { if(!s) return null; const x = new Date(s); x.setHours(0,0,0,0); return x; };
-  const days = (a, b) => Math.round((a - b) / 86400000);
-  const out = [];
-  for(const r of rels){ if(r.acknowledged_at) continue; const c = byId(CYCLES, r.cycle_id); if(!c) continue;
-    out.push(`<div class="alert ok"><i class="ti ti-chart-radar"></i> <span style="flex:1"><b>Ya puedes ver tus resultados</b> de ${esc(c.name)}.</span><button class="btn sm pri" onclick="go('results')">Ver resultados</button></div>`); }
-  for(const c of CYCLES){
-    const mine = all.filter(a => a.cycle_id === c.id); if(!mine.length) continue;
-    const pend = mine.filter(a => a.status !== 'submitted').length;
-    const o = d(c.opens_at), cl = d(c.closes_at);
-    if(c.status === 'closed'){ out.push(`<div class="alert info"><i class="ti ti-lock"></i> <span style="flex:1"><b>${esc(c.name)}</b> está cerrado. Ya no se pueden enviar respuestas.</span></div>`); continue; }
-    if(c.status !== 'open') continue;
-    if(cl && days(cl, today) === 0) out.push(`<div class="alert warn"><i class="ti ti-alarm"></i> <span style="flex:1"><b>Hoy cierra ${esc(c.name)}.</b> ${pend ? `Te quedan ${pend} review${pend>1?'s':''} por enviar.` : "Tienes todo enviado."}</span></div>`);
-    else if(cl && days(cl, today) < 0) out.push(`<div class="alert warn"><i class="ti ti-alarm"></i> <span style="flex:1"><b>${esc(c.name)}</b> debía cerrar el ${fmtD(c.closes_at)}${pend ? ` y te quedan ${pend} review${pend>1?'s':''} por enviar` : ""}.</span></div>`);
-    else if(o && days(o, today) === 0) out.push(`<div class="alert ok"><i class="ti ti-calendar-event"></i> <span style="flex:1"><b>Hoy empieza ${esc(c.name)}.</b> Tienes ${mine.length} review${mine.length>1?'s':''} que completar${c.closes_at ? ` hasta el ${fmtD(c.closes_at)}` : ""}.</span></div>`);
-    else if(cl && days(cl, today) <= 7 && pend) out.push(`<div class="alert warn"><i class="ti ti-hourglass"></i> <span style="flex:1"><b>Quedan ${days(cl, today)} día${days(cl, today)>1?'s':''}</b> para que cierre ${esc(c.name)}. Te faltan ${pend} review${pend>1?'s':''}.</span></div>`);
-  }
-  return out.length ? `<div style="display:grid;gap:8px;margin-bottom:16px">${out.join("")}</div>` : "";
-}
+// Los avisos (hoy empieza, quedan X días, hoy cierra, cerrado, ya puedes ver tus resultados) van por CORREO, no dentro de la app (Hugo, 07-sep-2026). Ver 3 - Base de datos/11_avisos_correo.sql y edge/avisos.
 PAGES.tasks = async function(){
   const all = await myAssignments(); await refreshLeadCache();
   PICKED = {}; { const { data:pk } = await sb.from("assignments").select("cycle_id").eq("reviewee_id", ME.id).in("role", ["peer","lead"]); for(const x of (pk||[])) PICKED[x.cycle_id] = true; }
@@ -802,9 +781,7 @@ PAGES.tasks = async function(){
   const byCycle = {};
   for(const a of all){ (byCycle[a.cycle_id] ||= []).push(a); }
   const cyclesSorted = CYCLES.filter(c => byCycle[c.id]);
-  const { data:myRel } = await sb.from("releases").select("*").eq("reviewee_id", ME.id);
   return `
-  ${cycleBanners(all, myRel||[])}
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hola, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div></div>
   <div class="grid g3" style="margin-bottom:18px">
     <div class="card kpi"><span class="v">${pending.length}</span><span class="l">Reviews pendientes</span><span class="d ${pending.length?'neg':''}">${pending.length ? "por completar" : "todo al día"}</span></div>
@@ -974,32 +951,44 @@ async function buildResultsView(personId, cycleId, fetchRows){
   const { data:frs } = await sb.from("final_reviews").select("*").eq("reviewee_id", personId);
   const fr = (frs||[]).find(f => f.cycle_id === c.id && f.status === 'sent');
   const cur = { c, rows: await fetchRows(c.id), fr };
-  // Objetivos del último diciembre (Hugo, 07-sep-2026): los del propio ciclo si es de diciembre; si no, los del último ciclo 360 con resumen enviado
-  let dec = null;
-  if(c.kind !== '360'){
+  let prev = null, dec = null;
+  if(c.kind === '360'){
+    // Diciembre: comparar con el diciembre anterior (arañas, barras y objetivos que le pusieron)
+    const prevC = CYCLES.filter(x => x.kind === '360' && (x.opens_at||"") < (c.opens_at||"")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
+    for(const pc of prevC){ const rows = await fetchRows(pc.id); const pfr = (frs||[]).find(f => f.cycle_id === pc.id && f.status === 'sent'); if((rows && rows.length) || pfr){ prev = { c:pc, rows: rows||[], fr:pfr }; break; } }
+  } else {
+    // Junio: los objetivos del último diciembre (el año no ha acabado y son los mismos objetivos)
     const decs = CYCLES.filter(x => x.kind === '360' && (x.opens_at||"") <= (c.opens_at||"9999")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
     for(const dc of decs){ const dfr = (frs||[]).find(f => f.cycle_id === dc.id && f.status === 'sent' && f.objectives); if(dfr){ dec = { c:dc, fr:dfr }; break; } }
   }
-  return { cur, dec, personId };
+  return { cur, prev, dec, personId };
 }
 function resultsHTML(view, who){
-  const { cur, dec } = view; const { c, fr } = cur;
-  const stats = scaleStats(cur.rows);
-  const hasScales = Object.keys(stats).some(k => k !== "_n");
-  const yr = fr && fr.objectives_year ? fr.objectives_year : (c.opens_at ? new Date(c.opens_at).getFullYear()+1 : "");
+  const { cur, prev, dec } = view; const { c, fr } = cur;
   const box = (k, v, full) => `<div class="fr-box ${full?'full':''}"><div class="k">${k}</div><div class="v ${v?'':'empty'}">${v ? esc(v) : "—"}</div></div>`;
-  const objBlock = c.kind === '360'
-    ? (fr ? box(`Objectives ${yr}`, fr.objectives, true) : "")
-    : (dec ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objectives ${who==='me' ? "que te pusieron" : "que le pusieron"} en ${esc(dec.c.name)} <span class="pill gray" style="margin-left:auto">${dec.fr.objectives_year||""}</span></div><div class="v">${esc(dec.fr.objectives)}</div></div>` : "");
+  const tu = who === 'me';
+  if(c.kind !== '360'){
+    // ---- Junio (Mid Term Feedback): solo el resumen del lead y los objetivos de diciembre. Sin gráficos. ----
+    const decBlock = dec ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objectives ${tu ? "que te pusieron" : "que le pusieron"} en ${esc(dec.c.name)} <span class="pill gray" style="margin-left:auto">${dec.fr.objectives_year||""}</span></div><div class="v">${esc(dec.fr.objectives)}</div></div>` : "";
+    return `${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Top 3 Achievements", fr.positives)}${box("Top 3 Areas of Development", fr.development)}</div>`
+                : (tu ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}${decBlock}`;
+  }
+  // ---- Diciembre (Performance Evaluation): como siempre, con la comparación con el año anterior ----
+  const stats = scaleStats(cur.rows), pstats = prev ? scaleStats(prev.rows) : null;
+  const hasScales = Object.keys(stats).some(k => k !== "_n"), hasPrev = !!(pstats && Object.keys(pstats).some(k => k !== "_n"));
+  const yr = fr && fr.objectives_year ? fr.objectives_year : (c.opens_at ? new Date(c.opens_at).getFullYear()+1 : "");
+  const prevObj = prev && prev.fr && prev.fr.objectives ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objetivos que ${tu ? "te pusieron" : "le pusieron"} en ${esc(prev.c.name)} <span class="pill gray" style="margin-left:auto">${prev.fr.objectives_year||""}</span></div><div class="v">${esc(prev.fr.objectives)}</div></div>` : "";
   return `
-    ${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Top 3 Achievements", fr.positives)}${box("Top 3 Areas of Development", fr.development)}${c.kind === '360' ? objBlock : ""}</div>`
-         : (who === 'me' ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}
-    ${c.kind === '360' ? "" : objBlock}
-    ${hasScales ? `<div class="res-sub">Puntuaciones · ${esc(c.period_label||c.name)}</div><div class="radars" style="margin-bottom:18px;grid-template-columns:minmax(0,1fr);max-width:720px">
-      <div class="radar"><h4>Media ponderada, media aritmética y ${who==='me' ? "tu" : "su"} autoevaluación</h4><div class="sub">${stats._n} opiniones. Pasa el ratón por un eje para ver las tres notas.</div><div class="box"><canvas id="rad_cur"></canvas></div></div></div>
-      <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota de ${who==='me' ? "tu" : "su"} autoevaluación · el porcentaje es sobre las personas que han respondido</span></div>
-      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">media ${(stats[k].sum/stats[k].n).toFixed(2)}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
-      : (who === 'me' ? "" : `<div class="hint">Todavía no hay puntuaciones enviadas en este ciclo.</div>`)}`;
+    ${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Main Positives", fr.positives)}${box("Main Areas of Development", fr.development)}${box("Key Quotes from Reviewers", fr.quotes)}${box(`Objectives ${yr}`, fr.objectives)}</div>`
+         : (tu ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}
+    ${prevObj}
+    ${hasScales ? `<div class="res-sub">Puntuaciones</div><div class="radars" style="margin-bottom:18px">
+      <div class="radar"><h4>${esc(c.period_label||c.name)}</h4><div class="sub">Media ponderada, media aritmética y ${tu ? "tu" : "su"} autoevaluación · ${stats._n} opiniones</div><div class="box"><canvas id="rad_cur"></canvas></div></div>
+      <div class="radar"><h4>${prev ? esc(prev.c.period_label||prev.c.name) : "Año anterior"}</h4>${hasPrev ? `<div class="sub">Las mismas tres líneas del año anterior · ${pstats._n} opiniones</div><div class="box"><canvas id="rad_prev"></canvas></div>` : `<div class="empty-mini">Todavía no hay una review anterior del mismo tipo con la que comparar.</div>`}</div></div>
+      <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación · el porcentaje es sobre las personas que respondieron ese año</span></div>
+      ${hasPrev ? `<div class="legend" style="margin:-4px 0 10px"><span><i style="background:#0e2150"></i>${esc(c.period_label||c.name)}</span><span><i style="background:#a9cdf4"></i>${esc(prev.c.period_label||prev.c.name)}</span></div>` : ""}
+      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">media ${(stats[k].sum/stats[k].n).toFixed(2)}${hasPrev && pstats[k] ? ` · año anterior ${(pstats[k].sum/pstats[k].n).toFixed(2)}` : ""}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
+      : (tu ? "" : `<div class="hint">Todavía no hay puntuaciones enviadas en este ciclo.</div>`)}`;
 }
 PAGES.results = async function(){
   const { data:rel, error } = await sb.from("releases").select("*").eq("reviewee_id", ME.id).order("released_at", {ascending:false});
@@ -1011,7 +1000,7 @@ PAGES.results = async function(){
   // marcar como visto (quita el aviso de «ya puedes ver tus resultados»)
   const r0 = rel.find(r => r.cycle_id === c.id); if(r0 && !r0.acknowledged_at) sb.from("releases").update({ acknowledged_at: new Date().toISOString() }).eq("cycle_id", c.id).eq("reviewee_id", ME.id).then(()=>{});
   return `<div class="card" id="resCard">
-    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.sent_at)}` : `Resultados mostrados`}</div></div><button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button></div>
+    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.sent_at)}` : `Resultados mostrados`}</div></div>${view.prev ? `<span class="pill gray">comparado con ${esc(view.prev.c.period_label||view.prev.c.name)}</span>` : ""}<button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button></div>
     ${resultsHTML(view, 'me')}
   </div>`;
 };
@@ -1107,11 +1096,13 @@ function scaleStats(rows){
   return out;
 }
 function drawResults(view){
-  if(!view || !view.cur) return;
+  if(!view || !view.cur || view.cur.c.kind !== '360') return;   // en junio no hay gráficos
   const st = scaleStats(view.cur.rows); const codes = Object.keys(st).filter(k=>k!=="_n"); if(!codes.length) return;
   const lab = k => st[k].text.replace(/ and accountability| Technical/g,"");
   radar3("rad_cur", codes.map(lab), codes.map(k => +(st[k].wsum/st[k].w).toFixed(2)), codes.map(k => +(st[k].sum/st[k].n).toFixed(2)), codes.map(k => st[k].self));
-  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], null, view.cur.c.period_label || "Este año", "", st[k].self));
+  const ps = view.prev ? scaleStats(view.prev.rows) : null;
+  if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); radar3("rad_prev", pc.map(lab), pc.map(k => +(ps[k].wsum/ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum/ps[k].n).toFixed(2)), pc.map(k => ps[k].self)); }
+  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, view.cur.c.period_label || "Este año", view.prev ? (view.prev.c.period_label || "Año anterior") : "", st[k].self));
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
 
@@ -1209,7 +1200,9 @@ function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
   if(nDone < nPeers) pending.push(`${nPeers - nDone} compañero${nPeers-nDone>1?'s':''}`);
   const status = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
   const f = k => esc((fr && fr[k]) || "");
-  const fields = [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]].concat(is360 ? [["objectives",`Objectives ${fr&&fr.objectives_year?fr.objectives_year:year}`]] : []);
+  const fields = is360
+    ? [["summary","Reviewer Summary"],["positives","Main Positives"],["development","Main Areas of Development"],["quotes","Key Quotes from Reviewers"],["objectives",`Objectives ${fr&&fr.objectives_year?fr.objectives_year:year}`]]
+    : [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]];
   if(!canEdit){
     if(!fr) return (iAmLead||canSeeAll()) ? `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}</span></h3><div class="mut sm">Todavía no se ha escrito.</div></div>` : "";
     return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}${fr.lead_id?` · ${esc(fullName(person(fr.lead_id)))}`:""}</span></h3>
@@ -1219,9 +1212,10 @@ function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
     ${pending.length ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:12px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Usa «Excel con todas las respuestas» para leerlas juntas y escribe aquí el resumen.</div>`}
     <div class="fr-grid">
       <div class="full"><label>Reviewer Summary</label><textarea id="fr_summary" placeholder="Valoración global…">${f("summary")}</textarea></div>
-      <div><label>Top 3 Achievements</label><textarea id="fr_positives" placeholder="Los tres logros principales…">${f("positives")}</textarea></div>
-      <div><label>Top 3 Areas of Development</label><textarea id="fr_development" placeholder="Las tres áreas en las que crecer…">${f("development")}</textarea></div>
-      ${is360 ? `<div class="full"><label>Objectives <input type="text" id="fr_year" value="${fr&&fr.objectives_year?fr.objectives_year:year}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px"></label><textarea id="fr_objectives" placeholder="Objetivos para el año que viene…">${f("objectives")}</textarea></div>` : ""}
+      <div><label>${is360 ? "Main Positives" : "Top 3 Achievements"}</label><textarea id="fr_positives" placeholder="${is360 ? "Lo que mejor ha hecho…" : "Los tres logros principales…"}">${f("positives")}</textarea></div>
+      <div><label>${is360 ? "Main Areas of Development" : "Top 3 Areas of Development"}</label><textarea id="fr_development" placeholder="${is360 ? "Dónde tiene que crecer…" : "Las tres áreas en las que crecer…"}">${f("development")}</textarea></div>
+      ${is360 ? `<div><label>Key Quotes from Reviewers</label><textarea id="fr_quotes" placeholder="Frases literales de los compañeros, sin nombres…">${f("quotes")}</textarea></div>
+      <div><label>Objectives <input type="text" id="fr_year" value="${fr&&fr.objectives_year?fr.objectives_year:year}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px"></label><textarea id="fr_objectives" placeholder="Objetivos para el año que viene…">${f("objectives")}</textarea></div>` : ""}
     </div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Última edición ${fmtDT(fr.updated_at)}`:""}</span>
       <button class="btn" onclick="saveFinalReview(false)"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
@@ -1230,7 +1224,7 @@ function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
 }
 async function saveFinalReview(send){
   const { c, p } = window.REV_CTX; const g = x => document.getElementById(x); const is360 = c.kind === '360';
-  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes:null,
+  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes: is360 && g("fr_quotes") ? (g("fr_quotes").value.trim()||null) : null,
     objectives: is360 && g("fr_objectives") ? (g("fr_objectives").value.trim()||null) : null, objectives_year: is360 && g("fr_year") ? (parseInt(g("fr_year").value)||null) : null, updated_at:new Date().toISOString() };
   if(send && !row.summary) return toast("Escribe al menos el Reviewer Summary antes de enviar", true);
   const { error } = await sb.from("final_reviews").upsert(row, { onConflict:"cycle_id,reviewee_id" });
@@ -1305,30 +1299,75 @@ function orgFind(name){
   return PEOPLE.find(p => { const fn = _norm(p.first_name), ln = _norm(p.last_name); return fn.split(/\s+/)[0] === first && (!last || ln.includes(last) || fn.includes(last)); })
       || PEOPLE.find(p => _norm(fullName(p)).includes(first) && (!last || _norm(fullName(p)).includes(last)));
 }
-function orgP(item){
-  const [name, role, ext] = item; const p = ext ? null : orgFind(name);
-  return `<div class="oc-p ${ext?'ext':''}" ${p ? `onclick="personInfo('${p.id}')" title="Abrir ficha"` : ""}>${p ? `<span class="av">${av(p,"sm")}</span>` : ""}<span class="n">${esc(name)}</span>${role ? `<span class="r">${esc(role)}</span>` : ""}</div>`;
-}
-const orgPeople = (list, cols) => `<div class="oc-people ${cols ? 'cols-'+cols : ''}">${list.map(orgP).join("")}</div>`;
+// Lienzo del organigrama (1220 x 605, como la foto). Coordenadas en píxeles del lienzo.
 function orgChartHTML(){
-  const box = (title, inner, cls="", small=false) => `<div class="oc-box ${cls}"><div class="oc-title ${small?'small':''}">${esc(title)}</div>${inner}</div>`;
-  const top = `<div class="oc-row oc-top">
-    ${box("Board of Directors", orgPeople(ORG.board, 5), "frame")}
-    ${box("Compliance & Internal Control", `<div class="oc-people cols-3">${ORG.compliance.map(([t, ppl]) => `<div class="oc-box" style="padding:8px"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl)}</div>`).join("")}</div>`, "frame")}
-  </div>`;
-  const left = `<div>
-    ${box("Investment Committee (1)", orgPeople(ORG.ic, 3), "frame")}
-    <div class="oc-conn dots"><i></i></div>
-    ${box("Investment Team - Investments, Analysis and Monitoring", orgPeople(ORG.invest, 3) + `<div class="oc-teams">${ORG.teams.map(([t, cls, ppl]) => `<div class="oc-box ${cls}"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl, ppl.length > 2 ? 2 : 1)}</div>`).join("")}</div>
-      <div class="oc-box" style="margin-top:12px"><div class="oc-title small">${esc(ORG.associates[0])}</div>${orgPeople(ORG.associates[1], 4)}</div>`, "frame")}
-  </div>`;
-  const right = `<div>
-    <div class="oc-units">${ORG.units.map(([t, cls, ppl, sub]) => `<div class="oc-box ${cls}"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl)}${sub ? `<div class="oc-sub"><div class="oc-title small">${esc(sub[0])}</div>${orgPeople(sub[1])}</div>` : ""}</div>`).join("")}</div>
-    <div class="oc-conn"><i></i></div>
-    ${box(ORG.aml[0], orgPeople(ORG.aml[1], 3), "frame")}
-  </div>`;
-  return `<div class="oc">${top}<div class="oc-conn"><i></i></div><div class="oc-row oc-main">${left}${right}</div></div>`;
+  const B = []; const L = [];
+  const box = (x,y,w,h,cls="",title="",tcls="") => B.push(`<div class="bx ${cls}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">${title?`<div class="bt ${tcls}">${esc(title)}</div>`:""}</div>`);
+  const pp = (x,y,w,h,name,role,ext,lg) => { const q = ext ? null : orgFind(name); B.push(`<div class="pp ${ext?'ext':''} ${lg?'lg':''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" ${q?`onclick="personInfo('${q.id}')" title="Abrir ficha"`:""}><span class="n">${esc(name)}</span>${role?`<span class="r">${esc(role)}</span>`:""}</div>`); };
+  const line = (x1,y1,x2,y2,dash) => L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#4a5568" stroke-width="1.6" ${dash?'stroke-dasharray="3 3"':''}/>`);
+  const row = (items, x, y, w, h, gap, ext, lg) => { const cw = (w - gap*(items.length-1)) / items.length; items.forEach(([n,r,e], i) => pp(x + i*(cw+gap), y, cw, h, n, r, ext||e, lg)); };
+
+  // ---- Board of Directors ----
+  box(10,8,782,100,"frame","Board of Directors");
+  box(20,32,762,70,"frame2");
+  row(ORG.board, 26,38, 750,58, 6, false, true);
+  // ---- Compliance & Internal Control ----
+  box(812,8,400,100,"frame","Compliance & Internal Control");
+  ORG.compliance.forEach(([t, ppl], i) => { const x = 820 + i*124; box(x,34,116,66,"frame2",t,"sm"); ppl.forEach(([n,r,e]) => pp(x+6,54,104,40,n,r,e)); });
+  line(792,58,812,58,true);
+  // ---- Tronco y ramas ----
+  line(376,108,376,130); line(240,130,1128,130);
+  [240,500,570,685,795,905,1015,1128].forEach(x => line(x,130,x,148));
+  line(500,130,500,505); line(500,505,518,505);
+  // ---- Investment Committee ----
+  box(5,148,485,84,"frame","Investment Committee (1)");
+  box(20,174,455,50,"panel");
+  row(ORG.ic, 28,180, 440,38, 8);
+  line(240,232,240,258,true);
+  // ---- Investment Team ----
+  box(5,258,485,345,"frame","Investment Team - Investments, Analysis and Monitoring");
+  box(20,284,455,50,"panel");
+  row(ORG.invest, 28,290, 440,38, 8);
+  // PE Team
+  box(20,342,168,130,"panel","PE Team","sm");
+  ORG.teams[0][2].forEach(([n,r], i) => pp(30,366+i*50,148,44,n,r));
+  // Horizon Team
+  box(196,342,170,130,"teal","Horizon Team","sm teal");
+  ORG.teams[1][2].forEach(([n,r], i) => pp(202 + (i%2)*82, 366 + Math.floor(i/2)*50, 78,44, n,r));
+  // Nest Team
+  box(374,342,100,252,"teal","Nest Team","sm teal");
+  ORG.teams[2][2].forEach(([n,r], i) => pp(380,366+i*56,88,48,n,r));
+  // PE Associates & Analysts
+  box(20,482,346,112,"panel","PE Associates & Analysts","sm");
+  ORG.associates[1].forEach(([n,r], i) => pp(26 + (i%4)*84, 506 + Math.floor(i/4)*44, 80,38, n,r));
+  // ---- Unidades de la derecha ----
+  const U = ORG.units;
+  // Adm. Finance & Valuation + Finance Team
+  box(518,148,105,305,"teal","Adm. Finance & Valuation","sm teal");
+  pp(524,186,93,44,U[0][2][0][0],U[0][2][0][1]);
+  box(524,244,93,200,"teal","Finance Team","sm teal");
+  U[0][3][1].forEach(([n,r], i) => pp(530,272+i*56,81,48,n,r));
+  line(570,236,570,244,true);
+  // Abac Fast Forward, Legal & Compliance, Fundraising & IR
+  [[630,U[1]],[740,U[2]],[850,U[3]]].forEach(([x,u]) => { box(x,148,105,90,"",u[0],"sm"); pp(x+6,190,93,42,u[2][0][0],u[2][0][1]); });
+  // Office Management
+  box(960,148,105,145,"",U[4][0],"sm");
+  U[4][2].forEach(([n,r], i) => pp(966,190+i*50,93,44,n,r));
+  // Sustainability -> Sustainability Team
+  box(1075,148,105,78,"green",U[5][0],"sm green");
+  pp(1081,182,93,38,U[5][2][0][0],U[5][2][0][1]);
+  line(1128,226,1128,236,true);
+  box(1075,236,105,78,"green",U[5][3][0],"sm green");
+  pp(1081,270,93,38,U[5][3][1][0][0],U[5][3][1][0][1]);
+  // ---- AML CTF Internal Committee ----
+  box(518,465,318,82,"frame2",ORG.aml[0]);
+  row(ORG.aml[1], 526,494, 302,44, 8);
+
+  return `<div class="ocw" id="ocw"><div class="ocx" id="ocx"><svg viewBox="0 0 1220 605">${L.join("")}</svg>${B.join("")}</div></div>`;
 }
+function orgFit(){ const w = document.getElementById("ocw"), c = document.getElementById("ocx"); if(!w || !c) return; const k = Math.min(1, w.clientWidth / 1220); c.style.transform = `scale(${k})`; w.style.height = Math.round(605 * k) + "px"; }
+window.addEventListener("resize", () => orgFit());
+AFTER.people = async function(){ orgFit(); };
 PAGES.people = async function(){
   const act = PEOPLE.filter(p => p.active);
   const partners = act.filter(p => p.is_partner);
@@ -1347,7 +1386,7 @@ PAGES.people = async function(){
 function personInfo(id){
   const p = person(id); if(!p) return;
   openModal(`<div class="row" style="gap:14px">${av(p,"lg")}<div><h2 style="margin:0">${esc(fullName(p))}</h2><div class="mut sm">${esc(p.position||"")} · ${TEAM_LABEL[p.team]||"sin equipo"}</div></div></div>
-    <table style="margin-top:14px"><tr><td class="mut">Correo</td><td class="num">${esc(p.email)}</td></tr><tr><td class="mut">En Abac desde</td><td class="num">${fmtD(p.start_date)}</td></tr><tr><td class="mut">Roles en la app</td><td class="num">${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span>':''}${!p.is_partner&&!p.is_admin?'<span class="pill gray">Empleado</span>':''}</td></tr></table>
+    <table style="margin-top:14px"><tr><td class="mut">Correo</td><td class="num">${esc(p.email)}</td></tr><tr><td class="mut">En Abac desde</td><td class="num">${fmtD(p.start_date)}</td></tr><tr><td class="mut">Roles en la app</td><td class="num">${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.is_hr_admin?'<span class="pill pur">Admin RRHH</span>':''}${!p.is_partner&&!p.is_admin&&!p.is_hr_admin?'<span class="pill gray">Empleado</span>':''}</td></tr></table>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px">${isAdmin()?`<button class="btn" onclick="closeModal();editPerson('${p.id}')"><i class="ti ti-pencil"></i> Editar</button>`:""}<button class="btn pri" onclick="closeModal()">Cerrar</button></div>`);
 }
 
@@ -1435,7 +1474,7 @@ const ADMIN = {
     const { data:all, error } = await sb.from("people").select("*").order("last_name"); if(error) throw error;
     return `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editPerson(null)"><i class="ti ti-user-plus"></i> Nueva persona</button></div>
     <div class="card"><table><tr><th>Persona</th><th>Correo</th><th>Puesto</th><th>Equipo</th><th>Desde</th><th>Roles</th><th>Activa</th><th></th></tr>
-      ${all.map(p=>`<tr style="${p.active?'':'opacity:.5'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all&&!p.is_admin?'<span class="pill">ve todo</span> ':''}${p.is_evaluated===false?'<span class="pill gray">no se evalúa</span>':''}</td><td>${p.active?'<span class="y">sí</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Editar</button></td></tr>`).join("")}</table></div>`;
+      ${all.map(p=>`<tr style="${p.active?'':'opacity:.5'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.is_hr_admin?'<span class="pill pur">Admin RRHH</span> ':''}${p.sees_all&&!p.is_hr_admin?'<span class="pill">ve todo</span> ':''}${p.is_evaluated===false?'<span class="pill gray">no se evalúa</span>':''}</td><td>${p.active?'<span class="y">sí</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Editar</button></td></tr>`).join("")}</table></div>`;
   },
   /* ----- Ajustes ----- */
   async settings(){
@@ -1740,7 +1779,7 @@ async function exportAssign(cycleId){
 
 /* ----- Personas ----- */
 function editPerson(id){
-  const p = id ? PEOPLE.find(x=>x.id===id) || {} : { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true };
+  const p = id ? PEOPLE.find(x=>x.id===id) || {} : { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true, is_hr_admin:false };
   openModal(`<h2>${id?"Editar persona":"Nueva persona"}</h2>
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Nombre</label><input type="text" id="p_fn" value="${esc(p.first_name||"")}"></div><div><label class="xs mut">Apellidos</label><input type="text" id="p_ln" value="${esc(p.last_name||"")}"></div>
     <div><label class="xs mut">Correo (login Microsoft)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Puesto</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
@@ -1748,13 +1787,14 @@ function editPerson(id){
    <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Socio <span class="xs mut">(etiqueta y peso extra en la media ponderada)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Ve todas las reviews de la firma <span class="xs mut">(Todas las reviews, expedientes, auditoría)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Se le evalúa <span class="xs mut">(entra como persona evaluada en los ciclos)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Administra la app (ciclos, asignaciones, publicación)</label></div>
+   <div class="chk"><input type="checkbox" id="p_hr" ${p.is_hr_admin?"checked":""} onchange="if(this.checked) document.getElementById('p_sees').checked = true"><label>Admin de RRHH <span class="xs mut">(ve las respuestas y resúmenes de todo el mundo)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Administra la app <span class="xs mut">(ciclos, asignaciones y personas; no ve respuestas)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_active" ${p.active!==false?"checked":""}><label>Activa (puede entrar y recibe asignaciones)</label></div>
    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="savePerson(${id?`'${id}'`:"null"})">Guardar</button></div>`);
 }
 async function savePerson(id){
   const g = x => document.getElementById(x);
-  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:g("p_sd").value||null, is_partner:g("p_partner").checked, sees_all:g("p_sees").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
+  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:g("p_sd").value||null, is_partner:g("p_partner").checked, sees_all:g("p_sees").checked || g("p_hr").checked, is_hr_admin:g("p_hr").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
   if(!row.first_name || !row.email) return toast("Nombre y correo son obligatorios", true);
   const r = id ? await sb.from("people").update(row).eq("id", id) : await sb.from("people").insert(row);
   if(r.error) return err(r.error,"No se pudo guardar"); closeModal(); toast("Guardado"); await loadCatalog(); render();
