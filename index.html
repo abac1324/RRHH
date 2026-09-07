@@ -416,6 +416,31 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .prev-obj .v{font-size:13.5px;line-height:1.6;white-space:pre-wrap}
 .dist .d1 .box{height:190px}
 .res-note{font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint)}
+
+/* ---------- Organigrama oficial (foto de Hugo, 07-sep-2026) ---------- */
+.oc{display:grid;gap:18px;color:var(--ink)}
+.oc-box{border:1px solid #cfd5df;border-radius:10px;background:#fff;padding:10px 12px 12px;box-shadow:var(--shadow);min-width:0}
+.oc-box.frame{border-width:2px;border-color:#b9c2d0}
+.oc-box.tint{background:#eef9f9;border-color:#bfe3e3}
+.oc-box.green{background:#eef8ee;border-color:#bfe0bf}
+.oc-title{text-align:center;font-weight:800;font-size:13px;color:var(--navy);text-decoration:underline;text-decoration-color:#0e2150;text-underline-offset:3px;margin-bottom:8px;letter-spacing:-.01em}
+.oc-title.small{font-size:12px}
+.oc-people{display:grid;gap:8px}
+.oc-people.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-people.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.oc-people.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.oc-people.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.oc-p{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:8px 6px;border:1px solid #e3e7ee;border-radius:9px;background:#f7f9fc;cursor:pointer;min-width:0}
+.oc-p:hover{border-color:#c7cdd9;background:#fff}
+.oc-p.ext{cursor:default;background:#fafbfd}
+.oc-p .n{font-weight:700;font-size:12px;line-height:1.2}
+.oc-p .r{font-size:10px;color:var(--muted);font-style:italic;line-height:1.25}
+.oc-p .av{margin-bottom:3px}
+.oc-row{display:grid;gap:18px;align-items:start}
+.oc-top{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
+.oc-main{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)}
+.oc-units{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.oc-sub{margin-top:10px;padding-top:10px;border-top:1px dashed #c9d0dc}
+.oc-conn{display:flex;justify-content:center}.oc-conn i{display:block;width:2px;height:16px;background:#b9c2d0}.oc-conn.dots i{background:repeating-linear-gradient(#b9c2d0 0 3px,transparent 3px 6px)}
+.oc-teams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}
+@media(max-width:1100px){.oc-top,.oc-main{grid-template-columns:1fr}.oc-units{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-teams{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -492,7 +517,7 @@ const byId = (arr, id) => arr.find(x => x.id === id);
 const person = id => byId(PEOPLE, id);
 const isAdmin = () => !!(ME && ME.is_admin);
 const isPartner = () => !!(ME && ME.is_partner);
-const canSeeAll = () => !!(ME && (ME.is_admin || ME.sees_all));            // ver todas las reviews (socios con permiso y admins)
+const canSeeAll = () => !!(ME && ME.sees_all);                             // ver todas las respuestas: solo quien tiene el permiso (Hugo, 07-sep-2026: el admin NO)
 const isEvaluated = p => p.is_evaluated !== false;                          // entra como persona evaluada
 
 
@@ -675,15 +700,15 @@ const NAV = [
   {grp:"Reviews"},
   {id:"tasks",   ic:"clipboard-check", label:"Mis reviews"},
   {id:"results", ic:"chart-radar",     label:"Mis resultados"},
-  {id:"team",    ic:"users",           label:"Mi equipo", show:()=>hasLeadRole()},
+  {id:"team",    ic:"users",           label:"Lead Reviewer", show:()=>hasLeadRole()},
   {grp:"Firma"},
   {id:"partners",ic:"eye",             label:"Todas las reviews", show:()=>canSeeAll()},
   {id:"people",  ic:"sitemap",        label:"Directorio y organigrama"},
   {grp:"Administración", show:()=>isAdmin()},
   {id:"admin",   ic:"settings",       label:"Ciclos y asignaciones", show:()=>isAdmin()},
-  {id:"audit",   ic:"shield-lock",    label:"Auditoría", show:()=>canSeeAll()},
+  {id:"audit",   ic:"shield-lock",    label:"Auditoría", show:()=>isAdmin()||canSeeAll()},
 ];
-const TITLES = { tasks:"Mis reviews", results:"Mis resultados", team:"Mi equipo", partners:"Todas las reviews", people:"Directorio y organigrama", admin:"Ciclos y asignaciones", audit:"Auditoría", form:"Evaluación", review:"Evaluaciones recibidas" };
+const TITLES = { tasks:"Mis reviews", results:"Mis resultados", team:"Lead Reviewer", partners:"Todas las reviews", people:"Directorio y organigrama", admin:"Ciclos y asignaciones", audit:"Auditoría", form:"Evaluación", review:"Evaluaciones recibidas" };
 let LEAD_CACHE = null;
 function hasLeadRole(){ return !!LEAD_CACHE; }
 function canSee(id){ const n = NAV.find(x => x.id === id); return !n || !n.show || n.show(); }
@@ -747,6 +772,27 @@ async function refreshLeadCache(){
 
 /* ---------- MIS TAREAS ---------- */
 let PICKED = {};
+// Avisos de calendario (Hugo, 07-sep-2026): hoy empieza, quedan X días, hoy cierra, cerrado, ya puedes ver tus resultados
+function cycleBanners(all, rels){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d = s => { if(!s) return null; const x = new Date(s); x.setHours(0,0,0,0); return x; };
+  const days = (a, b) => Math.round((a - b) / 86400000);
+  const out = [];
+  for(const r of rels){ if(r.acknowledged_at) continue; const c = byId(CYCLES, r.cycle_id); if(!c) continue;
+    out.push(`<div class="alert ok"><i class="ti ti-chart-radar"></i> <span style="flex:1"><b>Ya puedes ver tus resultados</b> de ${esc(c.name)}.</span><button class="btn sm pri" onclick="go('results')">Ver resultados</button></div>`); }
+  for(const c of CYCLES){
+    const mine = all.filter(a => a.cycle_id === c.id); if(!mine.length) continue;
+    const pend = mine.filter(a => a.status !== 'submitted').length;
+    const o = d(c.opens_at), cl = d(c.closes_at);
+    if(c.status === 'closed'){ out.push(`<div class="alert info"><i class="ti ti-lock"></i> <span style="flex:1"><b>${esc(c.name)}</b> está cerrado. Ya no se pueden enviar respuestas.</span></div>`); continue; }
+    if(c.status !== 'open') continue;
+    if(cl && days(cl, today) === 0) out.push(`<div class="alert warn"><i class="ti ti-alarm"></i> <span style="flex:1"><b>Hoy cierra ${esc(c.name)}.</b> ${pend ? `Te quedan ${pend} review${pend>1?'s':''} por enviar.` : "Tienes todo enviado."}</span></div>`);
+    else if(cl && days(cl, today) < 0) out.push(`<div class="alert warn"><i class="ti ti-alarm"></i> <span style="flex:1"><b>${esc(c.name)}</b> debía cerrar el ${fmtD(c.closes_at)}${pend ? ` y te quedan ${pend} review${pend>1?'s':''} por enviar` : ""}.</span></div>`);
+    else if(o && days(o, today) === 0) out.push(`<div class="alert ok"><i class="ti ti-calendar-event"></i> <span style="flex:1"><b>Hoy empieza ${esc(c.name)}.</b> Tienes ${mine.length} review${mine.length>1?'s':''} que completar${c.closes_at ? ` hasta el ${fmtD(c.closes_at)}` : ""}.</span></div>`);
+    else if(cl && days(cl, today) <= 7 && pend) out.push(`<div class="alert warn"><i class="ti ti-hourglass"></i> <span style="flex:1"><b>Quedan ${days(cl, today)} día${days(cl, today)>1?'s':''}</b> para que cierre ${esc(c.name)}. Te faltan ${pend} review${pend>1?'s':''}.</span></div>`);
+  }
+  return out.length ? `<div style="display:grid;gap:8px;margin-bottom:16px">${out.join("")}</div>` : "";
+}
 PAGES.tasks = async function(){
   const all = await myAssignments(); await refreshLeadCache();
   PICKED = {}; { const { data:pk } = await sb.from("assignments").select("cycle_id").eq("reviewee_id", ME.id).in("role", ["peer","lead"]); for(const x of (pk||[])) PICKED[x.cycle_id] = true; }
@@ -756,7 +802,9 @@ PAGES.tasks = async function(){
   const byCycle = {};
   for(const a of all){ (byCycle[a.cycle_id] ||= []).push(a); }
   const cyclesSorted = CYCLES.filter(c => byCycle[c.id]);
+  const { data:myRel } = await sb.from("releases").select("*").eq("reviewee_id", ME.id);
   return `
+  ${cycleBanners(all, myRel||[])}
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hola, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div></div>
   <div class="grid g3" style="margin-bottom:18px">
     <div class="card kpi"><span class="v">${pending.length}</span><span class="l">Reviews pendientes</span><span class="d ${pending.length?'neg':''}">${pending.length ? "por completar" : "todo al día"}</span></div>
@@ -767,7 +815,7 @@ PAGES.tasks = async function(){
     const list = byCycle[c.id];
     const needPick = c.status==='open' && (c.visibility||{}).reviewee_picks && list.some(a=>a.role==='self') && !PICKED[c.id];
     return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-clipboard-check"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':c.status==='published'?'':'gray'}">${CYCLE_STATUS[c.status]}</span> ${c.closes_at?`<span class="xs mut">cierra ${fmtD(c.closes_at)}</span>`:""}</span></h3>
-     ${needPick ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-users-plus"></i> <span style="flex:1">En este ciclo eliges tú quién te da feedback: 2-3 compañeros y tu lead reviewer. Se hace desde tu autoevaluación.</span><button class="btn sm pri" onclick="go('form','${list.find(a=>a.role==='self').id}')">Elegir ahora</button></div>` : ""}
+     ${needPick ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-users-plus"></i> <span style="flex:1">En este ciclo eliges tú a los 2-3 compañeros que te dan feedback. Se hace desde tu autoevaluación.</span><button class="btn sm pri" onclick="go('form','${list.find(a=>a.role==='self').id}')">Elegir ahora</button></div>` : ""}
      <table><tr><th>Persona</th><th>Tipo de review</th><th>Formulario</th><th>Estado</th><th></th></tr>
      ${list.sort((a,b)=>(a.role==='self'?0:a.role==='lead'?1:2)-(b.role==='self'?0:b.role==='lead'?1:2)).map(a => { const f = byId(FORMS, a.form_id); return `<tr>
         <td class="row">${av(a.reviewee,"sm")} ${a.role==='self' ? "<b>Yo</b>" : esc(fullName(a.reviewee))}</td>
@@ -797,7 +845,7 @@ PAGES.form = async function(id){
 
   // Contexto: autoevaluación del evaluado (para lead, y para compañeros si el ciclo lo permite)
   let selfBlock = "";
-  if(a.role !== "self" && (a.role === "lead" || (cycle.visibility||{}).peers_see_self)){
+  if(a.role === "lead" && cycle.kind !== "cascade"){   // en junio el lead responde sin ver la autoevaluación (la ve después, en la ficha)
     const { data:selfRows } = await sb.from("assignments").select("id,status,form_id").eq("cycle_id", a.cycle_id).eq("reviewee_id", a.reviewee_id).eq("role","self").limit(1); const selfA = selfRows && selfRows[0];
     if(selfA && selfA.status === "submitted"){
       const { data:sAns } = await sb.from("answers").select("*").eq("assignment_id", selfA.id);
@@ -807,7 +855,7 @@ PAGES.form = async function(id){
   }
   // Para el lead: respuestas de los compañeros ya enviadas
   let peersBlock = "";
-  if(a.role === "lead"){
+  if(a.role === "lead" && cycle.kind !== "cascade"){
     const { data:peers } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", a.cycle_id).eq("reviewee_id", a.reviewee_id).eq("role","peer");
     if(peers && peers.length){
       const done = peers.filter(p => p.status === "submitted");
@@ -824,12 +872,12 @@ PAGES.form = async function(id){
   if(a.role === "self" && (cycle.visibility||{}).reviewee_picks && mine){
     const { data:others } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", a.cycle_id).eq("reviewee_id", ME.id).in("role", ["peer","lead"]);
     const peers = (others||[]).filter(x=>x.role==='peer'), lead = (others||[]).find(x=>x.role==='lead');
-    const locked = (others||[]).some(x => x.status !== 'pending') || cycle.status !== 'open';
+    const locked = peers.some(x => x.status !== 'pending') || cycle.status !== 'open';
     const popts = sel => PEOPLE.filter(p=>p.active && p.id!==ME.id).sort((x,y)=>x.last_name.localeCompare(y.last_name)).map(p=>`<option value="${p.id}" data-p="${p.id}" ${sel===p.id?"selected":""}>${esc(fullName(p))}</option>`).join("");
     picksBlock = `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users-plus"></i> Quién te da feedback <span class="r">${peers.length?`<span class="pill ok">${peers.length} compañero${peers.length>1?'s':''} elegidos</span>`:`<span class="pill warn">pendiente de elegir</span>`}</span></h3>
-      <p class="sm mut" style="margin:0 0 12px">Elige a <b>2 o 3 compañeros</b> con los que hayas trabajado este semestre y a tu <b>lead reviewer</b> preferido. Leerán tu autoevaluación cuando la envíes y te darán feedback.</p>
+      <p class="sm mut" style="margin:0 0 12px">Elige a <b>2 o 3 compañeros</b> con los que hayas trabajado este semestre. Te darán feedback sin ver tu autoevaluación. Tu lead reviewer lo asigna administración${lead ? `: <b>${esc(fullName(lead.reviewer))}</b>` : " (todavía sin asignar)"}; puede ser también uno de los compañeros que elijas.</p>
       <div class="two"><div><label class="xs mut">Compañero 1</label><select class="inp" id="pk1"><option value="">—</option>${popts(peers[0]&&peers[0].reviewer_id)}</select></div><div><label class="xs mut">Compañero 2</label><select class="inp" id="pk2"><option value="">—</option>${popts(peers[1]&&peers[1].reviewer_id)}</select></div>
-        <div><label class="xs mut">Compañero 3 (opcional)</label><select class="inp" id="pk3"><option value="">—</option>${popts(peers[2]&&peers[2].reviewer_id)}</select></div><div><label class="xs mut">Lead reviewer</label><select class="inp" id="pkl"><option value="">—</option>${popts(lead&&lead.reviewer_id)}</select></div></div>
+        <div><label class="xs mut">Compañero 3 (opcional)</label><select class="inp" id="pk3"><option value="">—</option>${popts(peers[2]&&peers[2].reviewer_id)}</select></div></div>
       ${locked ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Alguno de tus revisores ya ha empezado: la elección queda fijada. Habla con administración si hace falta cambiarla.</div>`
                : `<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn pri sm" onclick="saveReviewerPicks('${a.cycle_id}')"><i class="ti ti-check"></i> Guardar elección</button></div>`}</div>`;
   }
@@ -840,7 +888,8 @@ PAGES.form = async function(id){
     ${form.intro ? `<div class="hint" style="margin-top:12px">${esc(form.intro)}</div>` : ""}
     ${!mine ? `<div class="alert info" style="margin-top:12px"><i class="ti ti-eye"></i> Estás viendo la evaluación escrita por <b>${esc(fullName(a.reviewer))}</b>.</div>` : ""}
     ${mine && a.status !== "submitted" && cycle.status !== "open" ? `<div class="alert warn" style="margin-top:12px"><i class="ti ti-lock"></i> <span style="flex:1">Este ciclo todavía no está abierto (${CYCLE_STATUS[cycle.status].toLowerCase()}). Podrás responder cuando administración lo abra.</span>${isAdmin()?`<button class="btn sm pri" onclick="openCycleNow('${cycle.id}','${a.id}')"><i class="ti ti-lock-open"></i> Abrir el ciclo ahora</button>`:""}</div>` : ""}
-    ${mine && a.role==='peer' ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Tu respuesta no la verá ningún otro compañero. La leen el lead reviewer y los socios${(cycle.visibility||{}).reviewee_sees_peers!=='none' ? `, y la persona evaluada cuando se publique el ciclo (${(cycle.visibility||{}).peers_attributed ? "con tu nombre" : "sin tu nombre"})` : ""}.</div>` : ""}
+    ${mine && a.role==='peer' ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Tu respuesta no la verá ningún otro compañero ni la persona evaluada: la leen solo su lead reviewer y los socios con acceso. La persona recibe únicamente el resumen final de su lead.</div>` : ""}
+    ${mine && a.status === "submitted" ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Respuesta enviada. Si necesitas corregir algo, pídelo a administración: pueden reabrirla mientras el ciclo esté abierto.</div>` : ""}
   </div>`;
 
   const body = editable ? renderEditable(groups) : renderReadonly(form, a.role, ans);
@@ -854,13 +903,12 @@ PAGES.form = async function(id){
 
 async function saveReviewerPicks(cycleId){
   const g = x => document.getElementById(x).value;
-  const peers = [g("pk1"), g("pk2"), g("pk3")].filter(Boolean); const lead = g("pkl") || null;
+  const peers = [g("pk1"), g("pk2"), g("pk3")].filter(Boolean);
   if(new Set(peers).size !== peers.length) return toast("Has repetido un compañero", true);
   if(peers.length < 2) return toast("Elige al menos dos compañeros", true);
-  if(!lead) return toast("Elige a tu lead reviewer", true);
-  const { error } = await sb.rpc("choose_reviewers", { p_cycle:cycleId, p_peers:peers, p_lead:lead });
+  const { error } = await sb.rpc("choose_reviewers", { p_cycle:cycleId, p_peers:peers });
   if(error) return err(error, "No se pudo guardar la elección");
-  toast("Revisores guardados"); render();
+  toast("Compañeros guardados"); render();
 }
 async function openCycleNow(cycleId, assignmentId){
   const { error } = await sb.from("cycles").update({ status:"open" }).eq("id", cycleId);
@@ -909,7 +957,7 @@ async function submitCurrent(){
   const missing = [];
   for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(q.required && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
   if(missing.length){ openModal(`<h2>Faltan respuestas obligatorias</h2><ul class="sm">${missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul><div style="text-align:right"><button class="btn pri" onclick="closeModal()">Volver al formulario</button></div>`); return; }
-  openModal(`<h2>¿Guardar la respuesta final?</h2><p class="sm">Una vez guardada como final no se puede modificar. ${CUR.a.role==='peer'?"El otro compañero no verá tu respuesta.":CUR.a.role==='lead'?"Tu valoración es la que cierra el proceso de esta persona.":"Tus compañeros y tu lead reviewer podrán leerla según la configuración del ciclo."}</p>
+  openModal(`<h2>¿Guardar la respuesta final?</h2><p class="sm">Una vez guardada como final no se puede modificar (si hubiera un error, administración puede reabrirla). ${CUR.a.role==='peer'?"Ningún otro compañero ni la persona evaluada verán tu respuesta; solo su lead reviewer.":CUR.a.role==='lead'?"Después podrás leer las respuestas de los compañeros y escribir el resumen final.":"Tu lead reviewer la leerá cuando escriba tu resumen final."}</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-check"></i> Guardar respuesta final</button></div>`);
 }
 async function doSubmit(){
@@ -926,43 +974,63 @@ async function buildResultsView(personId, cycleId, fetchRows){
   const { data:frs } = await sb.from("final_reviews").select("*").eq("reviewee_id", personId);
   const fr = (frs||[]).find(f => f.cycle_id === c.id && f.status === 'sent');
   const cur = { c, rows: await fetchRows(c.id), fr };
-  const prevC = CYCLES.filter(x => x.kind === c.kind && (x.opens_at||"") < (c.opens_at||"")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
-  let prev = null;
-  for(const pc of prevC){ const rows = await fetchRows(pc.id); const pfr = (frs||[]).find(f => f.cycle_id === pc.id && f.status === 'sent'); if((rows && rows.length) || pfr){ prev = { c:pc, rows: rows||[], fr:pfr }; break; } }
-  return { cur, prev, personId };
+  // Objetivos del último diciembre (Hugo, 07-sep-2026): los del propio ciclo si es de diciembre; si no, los del último ciclo 360 con resumen enviado
+  let dec = null;
+  if(c.kind !== '360'){
+    const decs = CYCLES.filter(x => x.kind === '360' && (x.opens_at||"") <= (c.opens_at||"9999")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
+    for(const dc of decs){ const dfr = (frs||[]).find(f => f.cycle_id === dc.id && f.status === 'sent' && f.objectives); if(dfr){ dec = { c:dc, fr:dfr }; break; } }
+  }
+  return { cur, dec, personId };
 }
 function resultsHTML(view, who){
-  const { cur, prev } = view; const { c, fr } = cur;
-  const stats = scaleStats(cur.rows), pstats = prev ? scaleStats(prev.rows) : null;
-  const hasScales = Object.keys(stats).some(k => k !== "_n"), hasPrev = !!(pstats && Object.keys(pstats).some(k => k !== "_n"));
+  const { cur, dec } = view; const { c, fr } = cur;
+  const stats = scaleStats(cur.rows);
+  const hasScales = Object.keys(stats).some(k => k !== "_n");
   const yr = fr && fr.objectives_year ? fr.objectives_year : (c.opens_at ? new Date(c.opens_at).getFullYear()+1 : "");
-  const lead = fr && fr.lead_id ? person(fr.lead_id) : null;
   const box = (k, v, full) => `<div class="fr-box ${full?'full':''}"><div class="k">${k}</div><div class="v ${v?'':'empty'}">${v ? esc(v) : "—"}</div></div>`;
-  const prevObj = prev && prev.fr && prev.fr.objectives ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objetivos que ${who==='me' ? "te pusieron" : "le pusieron"} en ${esc(prev.c.name)} <span class="pill gray" style="margin-left:auto">${prev.fr.objectives_year||""}</span></div><div class="v">${esc(prev.fr.objectives)}</div></div>` : "";
+  const objBlock = c.kind === '360'
+    ? (fr ? box(`Objectives ${yr}`, fr.objectives, true) : "")
+    : (dec ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objectives ${who==='me' ? "que te pusieron" : "que le pusieron"} en ${esc(dec.c.name)} <span class="pill gray" style="margin-left:auto">${dec.fr.objectives_year||""}</span></div><div class="v">${esc(dec.fr.objectives)}</div></div>` : "");
   return `
-    ${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Main Positives", fr.positives)}${box("Main Areas of Development", fr.development)}${box("Key Quotes from Reviewers", fr.quotes)}${box(`Objectives ${yr}`, fr.objectives)}</div>`
+    ${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Top 3 Achievements", fr.positives)}${box("Top 3 Areas of Development", fr.development)}${c.kind === '360' ? objBlock : ""}</div>`
          : (who === 'me' ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}
-    ${prevObj}
-    ${hasScales ? `<div class="res-sub">Puntuaciones</div><div class="radars" style="margin-bottom:18px">
-      <div class="radar"><h4>${esc(c.period_label||c.name)}</h4><div class="sub">Media ponderada, media aritmética y ${who==='me' ? "tu" : "su"} autoevaluación · ${stats._n} opiniones</div><div class="box"><canvas id="rad_cur"></canvas></div></div>
-      <div class="radar"><h4>${prev ? esc(prev.c.period_label||prev.c.name) : "Año anterior"}</h4>${hasPrev ? `<div class="sub">Las mismas tres líneas del año anterior · ${pstats._n} opiniones</div><div class="box"><canvas id="rad_prev"></canvas></div>` : `<div class="empty-mini">Todavía no hay una review anterior del mismo tipo con la que comparar.</div>`}</div></div>
-      <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota que te pusiste en tu autoevaluación · el porcentaje es sobre las opiniones recibidas ese año</span></div>
-      ${hasPrev ? `<div class="legend" style="margin:-4px 0 10px"><span><i style="background:#0e2150"></i>${esc(c.period_label||c.name)}</span><span><i style="background:#a9cdf4"></i>${esc(prev.c.period_label||prev.c.name)}</span></div>` : ""}
-      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">media ${(stats[k].sum/stats[k].n).toFixed(2)}${hasPrev && pstats[k] ? ` · año anterior ${(pstats[k].sum/pstats[k].n).toFixed(2)}` : ""}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
+    ${c.kind === '360' ? "" : objBlock}
+    ${hasScales ? `<div class="res-sub">Puntuaciones · ${esc(c.period_label||c.name)}</div><div class="radars" style="margin-bottom:18px;grid-template-columns:minmax(0,1fr);max-width:720px">
+      <div class="radar"><h4>Media ponderada, media aritmética y ${who==='me' ? "tu" : "su"} autoevaluación</h4><div class="sub">${stats._n} opiniones. Pasa el ratón por un eje para ver las tres notas.</div><div class="box"><canvas id="rad_cur"></canvas></div></div></div>
+      <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota de ${who==='me' ? "tu" : "su"} autoevaluación · el porcentaje es sobre las personas que han respondido</span></div>
+      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">media ${(stats[k].sum/stats[k].n).toFixed(2)}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
       : (who === 'me' ? "" : `<div class="hint">Todavía no hay puntuaciones enviadas en este ciclo.</div>`)}`;
 }
 PAGES.results = async function(){
   const { data:rel, error } = await sb.from("releases").select("*").eq("reviewee_id", ME.id).order("released_at", {ascending:false});
   if(error) throw error;
   const relCycles = rel.map(r => byId(CYCLES, r.cycle_id)).filter(Boolean).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
-  if(!relCycles.length) return `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-chart-radar"></i></div><div class="t">Todavía no hay resultados</div><div class="d">Cuando tu lead reviewer te envíe su resumen, aquí lo verás junto con tus arañas y la comparación con el año anterior.</div></div></div>`;
+  if(!relCycles.length) return `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-chart-radar"></i></div><div class="t">Todavía no hay resultados</div><div class="d">Cuando tu lead reviewer muestre tus resultados, aquí verás su resumen final y tus gráficos.</div></div></div>`;
   const view = await buildResultsView(ME.id, relCycles[0].id, async cid => { if(!rel.some(r => r.cycle_id === cid)) return []; const { data } = await sb.rpc("my_results", { p_cycle: cid }); return data || []; });
   window.RES_VIEW = view; const { c, fr } = view.cur; const lead = fr && fr.lead_id ? person(fr.lead_id) : null;
-  return `<div class="card">
-    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.sent_at)}` : `Resultados publicados`}</div></div>${view.prev ? `<span class="pill gray">comparado con ${esc(view.prev.c.period_label||view.prev.c.name)}</span>` : ""}</div>
+  // marcar como visto (quita el aviso de «ya puedes ver tus resultados»)
+  const r0 = rel.find(r => r.cycle_id === c.id); if(r0 && !r0.acknowledged_at) sb.from("releases").update({ acknowledged_at: new Date().toISOString() }).eq("cycle_id", c.id).eq("reviewee_id", ME.id).then(()=>{});
+  return `<div class="card" id="resCard">
+    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.sent_at)}` : `Resultados mostrados`}</div></div><button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button></div>
     ${resultsHTML(view, 'me')}
   </div>`;
 };
+// PDF de Mis resultados: la misma vista (recuadros, araña y barras como imagen) en una ventana lista para «Guardar como PDF»
+function downloadResultsPDF(){
+  const card = document.getElementById("resCard"); if(!card) return;
+  const clone = card.cloneNode(true);
+  clone.querySelectorAll("canvas").forEach((cv, i) => { const src = card.querySelectorAll("canvas")[i]; const img = document.createElement("img"); try{ img.src = src.toDataURL("image/png"); }catch(e){} img.style.cssText = "width:100%;height:auto;display:block"; cv.replaceWith(img); });
+  clone.querySelectorAll("button").forEach(b => b.remove());
+  const css = [...document.querySelectorAll("style")].map(st => st.textContent).join("\n");
+  const w = window.open("", "_blank"); if(!w) return toast("El navegador ha bloqueado la ventana del PDF", true);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(fullName(ME))} · ${esc(view_title())}</title><style>${css}
+    body{background:#fff;margin:0;padding:24px;transform:none} .card{box-shadow:none;border:1px solid #e3e7ee} .radar .box,.dist .d1 .box{height:auto} .res-head .t{font-size:18px}
+    @page{size:A4;margin:14mm} @media print{.dist{grid-template-columns:repeat(3,minmax(0,1fr))}}</style></head><body>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-weight:800;font-size:15px;color:#0e2150">Abac RRHH · Evaluaciones de desempeño</div><div style="margin-left:auto;font-size:12px;color:#5c6675">${esc(fullName(ME))} · ${new Date().toLocaleDateString("es-ES")}</div></div>
+    ${clone.outerHTML}<script>setTimeout(()=>{window.print();},400);<\/script></body></html>`);
+  w.document.close();
+}
+function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
 // Araña con tres líneas y pop-up de las tres notas al pasar por un eje
 function radar3(canvasId, labels, W, A, S){
   const ctx = document.getElementById(canvasId); if(!ctx || !window.Chart) return;
@@ -1043,9 +1111,7 @@ function drawResults(view){
   const st = scaleStats(view.cur.rows); const codes = Object.keys(st).filter(k=>k!=="_n"); if(!codes.length) return;
   const lab = k => st[k].text.replace(/ and accountability| Technical/g,"");
   radar3("rad_cur", codes.map(lab), codes.map(k => +(st[k].wsum/st[k].w).toFixed(2)), codes.map(k => +(st[k].sum/st[k].n).toFixed(2)), codes.map(k => st[k].self));
-  const ps = view.prev ? scaleStats(view.prev.rows) : null;
-  if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); radar3("rad_prev", pc.map(lab), pc.map(k => +(ps[k].wsum/ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum/ps[k].n).toFixed(2)), pc.map(k => ps[k].self)); }
-  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, view.cur.c.period_label || "Este año", view.prev ? (view.prev.c.period_label || "Año anterior") : "", st[k].self));
+  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], null, view.cur.c.period_label || "Este año", "", st[k].self));
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
 
@@ -1060,19 +1126,21 @@ async function ack(cycleId){
 PAGES.team = async function(){
   const { data, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("reviewer_id", ME.id).eq("role","lead");
   if(error) throw error;
-  if(!data.length) return `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-users"></i></div><div class="t">No tienes personas a tu cargo en ningún ciclo</div><div class="d">Cuando seas lead reviewer de alguien, aquí verás su avance y podrás escribir tu valoración.</div></div></div>`;
+  if(!data.length) return `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-users"></i></div><div class="t">No eres lead reviewer de nadie en ningún ciclo</div><div class="d">Cuando administración te asigne personas como lead reviewer, aquí verás su avance, escribirás el resumen final y decidirás cuándo mostrarles los resultados.</div></div></div>`;
   const byCycle = {}; for(const a of data) (byCycle[a.cycle_id] ||= []).push(a);
   const { data:frs } = await sb.from("final_reviews").select("*").in("cycle_id", Object.keys(byCycle));
+  const { data:rels } = await sb.from("releases").select("*").in("cycle_id", Object.keys(byCycle));
   let html = "";
   for(const cid of Object.keys(byCycle)){
     const c = byId(CYCLES, cid); const { data:prog } = await sb.rpc("cycle_progress", { p_cycle: cid });
-    html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}')"><i class="ti ti-file-spreadsheet"></i> Excel de mi equipo</button></span></h3>
-      <table><tr><th>Persona</th><th>Autoevaluación</th><th>Compañeros</th><th>Mi valoración</th><th>Resumen final</th><th></th></tr>
+    html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}')"><i class="ti ti-file-spreadsheet"></i> Excel de mis evaluados</button></span></h3>
+      <table><tr><th>Persona</th><th>Autoevaluación</th><th>Compañeros</th><th>Mi valoración</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
       ${byCycle[cid].map(a => { const p = (prog||[]).filter(x => x.reviewee_id === a.reviewee_id); const g = r => p.find(x=>x.role===r) || {total:0,submitted:0}; const fr = (frs||[]).find(f => f.cycle_id===cid && f.reviewee_id===a.reviewee_id); const ready = g('self').submitted && g('peer').submitted>=g('peer').total && a.status==='submitted';
         return `<tr><td class="row">${av(a.reviewee,"sm")} ${esc(fullName(a.reviewee))}</td><td>${g('self').submitted?'<span class="y">enviada</span>':'<span class="mut">pendiente</span>'}</td><td>${g('peer').submitted} / ${g('peer').total}</td><td>${a.status==='submitted'?'<span class="y">enviada</span>':a.status==='draft'?'<span class="p">borrador</span>':'<span class="mut">pendiente</span>'}</td>
         <td>${fr ? (fr.status==='sent' ? `<span class="pill ok">enviado</span>` : `<span class="pill warn">borrador</span>`) : (ready ? `<span class="pill">listo para escribir</span>` : `<span class="mut xs">esperando respuestas</span>`)}</td>
-        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${ready&&!(fr&&fr.status==='sent')?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">${fr&&fr.status==='sent'?'Ver':'Ver todo y resumen'}</button></td></tr>`; }).join("")}</table>
-      <div class="hint" style="margin-top:10px">Tu propia review de cada persona se responde en «Mis reviews», como una más. Aquí escribes el resumen final cuando estén todas las respuestas.</div></div>`;
+        <td>${(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id) ? `<span class="pill ok">mostrados</span>` : (fr && fr.status==='sent' ? `<span class="pill warn">sin mostrar</span>` : `<span class="mut xs">—</span>`)}</td>
+        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${ready&&!(fr&&fr.status==='sent')?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">${fr&&fr.status==='sent'?'Abrir':'Ver todo y resumen'}</button></td></tr>`; }).join("")}</table>
+      <div class="hint" style="margin-top:10px">Tu propia valoración de cada persona se responde en «Mis reviews», como una más. Aquí escribes el resumen final cuando estén todas las respuestas y, cuando quieras, pulsas «Mostrar resultados» para que la persona lo vea.</div></div>`;
   }
   return html;
 };
@@ -1085,18 +1153,25 @@ PAGES.review = async function(arg){
   if(error) throw error;
   const { data:rel } = await sb.from("releases").select("*").eq("cycle_id", c.id).eq("reviewee_id", p.id).limit(1);
   window.REV_CTX = { c, p, as, ans:[] };
-  const iAmLead = as.some(a => a.role==='lead' && a.reviewer_id===ME.id);
+  const myLead = as.find(a => a.role==='lead' && a.reviewer_id===ME.id); const iAmLead = !!myLead;
   const { data:frRows } = await sb.from("final_reviews").select("*").eq("cycle_id", c.id).eq("reviewee_id", p.id).limit(1);
   const fr = frRows && frRows[0];
   const peersAll = as.filter(a=>a.role==='peer'), peersDone = peersAll.filter(a=>a.status==='submitted');
   const selfDone = as.some(a=>a.role==='self' && a.status==='submitted');
+  const shown = !!(rel && rel.length);
+  const head = (extra) => `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px">${av(p,"lg")}<div style="flex:1"><div class="hd">${esc(fullName(p))}</div><div class="mut sm">${esc(p.position||"")} · ${TEAM_LABEL[p.team]||""} · ${esc(c.name)} · ${selfDone?"autoevaluación enviada":"autoevaluación pendiente"} · compañeros ${peersDone.length}/${peersAll.length}</div></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;justify-content:flex-end">${extra}</div></div></div>`;
+  // Junio: el lead no lee nada hasta que ha enviado su propia valoración
+  if(iAmLead && !canSeeAll() && c.kind === 'cascade' && myLead.status !== 'submitted'){
+    return head(`<span class="pill gray">tu valoración: ${STATUS_LABEL[myLead.status].toLowerCase()}</span>`) + `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-lock"></i></div><div class="t">Primero tu valoración</div><div class="d">En el Mid Term Feedback respondes sin ver la autoevaluación ni lo que dicen los compañeros. Cuando envíes tu valoración, aquí podrás leerlo todo y escribir el resumen final.</div><button class="btn pri" style="margin-top:14px" onclick="go('form','${myLead.id}')"><i class="ti ti-pencil"></i> ${myLead.status==='draft'?'Continuar mi valoración':'Escribir mi valoración'}</button></div></div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('team')">Volver</button></div>`;
+  }
   const view = await buildResultsView(p.id, c.id, async cid => { const { data, error:e } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); if(e){ console.warn(e.message); return []; } return data || []; });
   window.RES_VIEW = view;
-  return `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px">${av(p,"lg")}<div style="flex:1"><div class="hd">${esc(fullName(p))}</div><div class="mut sm">${esc(p.position||"")} · ${TEAM_LABEL[p.team]||""} · ${esc(c.name)} · ${selfDone?"autoevaluación enviada":"autoevaluación pendiente"} · compañeros ${peersDone.length}/${peersAll.length}</div></div>
-      <div class="row" style="gap:8px;flex-wrap:wrap;justify-content:flex-end">${rel&&rel.length?`<span class="pill ok">resultados publicados ${fmtD(rel[0].released_at)}</span>`:`<span class="pill gray">sin publicar</span>`}
-        <button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>
-        ${isAdmin()&&!(rel&&rel.length)?`<button class="btn sm" onclick="releaseOne('${c.id}','${p.id}')">Publicar sin resumen</button>`:""}</div></div></div>
-    ${fr && fr.status === 'sent' ? "" : finalReviewCard(c, p, fr, iAmLead, peersAll.length, peersDone.length, selfDone)}
+  const status = shown ? `<span class="pill ok">resultados mostrados a ${esc(p.first_name)} el ${fmtD(rel[0].released_at)}</span>` : (fr && fr.status==='sent' ? `<span class="pill warn">resumen enviado · resultados sin mostrar</span>` : `<span class="pill gray">sin mostrar</span>`);
+  const showBtn = iAmLead && !shown && fr && fr.status==='sent' ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Mostrar resultados a ${esc(p.first_name)}</button>` : "";
+  return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>${showBtn}`) +
+    `${fr && fr.status === 'sent' ? "" : finalReviewCard(c, p, fr, iAmLead, peersAll.length, peersDone.length, selfDone)}
     <div class="card">${resultsHTML(view, 'other')}</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${canSeeAll()?'partners':'team'}')">Volver</button></div>`;
 };
@@ -1126,71 +1201,74 @@ async function exportCycleExcel(cycleId, revieweeId){
 }
 /* ---------- Resumen final del lead reviewer ---------- */
 function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
-  const canEdit = (iAmLead || isAdmin()) && !(fr && fr.status === 'sent');
+  const canEdit = iAmLead && !(fr && fr.status === 'sent');
+  const is360 = c.kind === '360';
   const year = (c.opens_at ? new Date(c.opens_at).getFullYear() : new Date().getFullYear()) + 1;
   const pending = [];
   if(!selfDone) pending.push("la autoevaluación");
   if(nDone < nPeers) pending.push(`${nPeers - nDone} compañero${nPeers-nDone>1?'s':''}`);
-  const status = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado a ${esc(p.first_name)} el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
+  const status = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
   const f = k => esc((fr && fr[k]) || "");
+  const fields = [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]].concat(is360 ? [["objectives",`Objectives ${fr&&fr.objectives_year?fr.objectives_year:year}`]] : []);
   if(!canEdit){
     if(!fr) return (iAmLead||canSeeAll()) ? `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}</span></h3><div class="mut sm">Todavía no se ha escrito.</div></div>` : "";
     return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}${fr.lead_id?` · ${esc(fullName(person(fr.lead_id)))}`:""}</span></h3>
-      <div class="fr-view">${[["summary","Reviewer Summary"],["positives","Main Positives"],["development","Main Areas of Development"],["quotes","Key Quotes from Reviewers"],["objectives",`Objectives ${fr.objectives_year||year}`]].map(([k,l])=>`<div class="blk"><div class="k">${l}</div><div class="v">${f(k)||'<span class="mut">—</span>'}</div></div>`).join("")}</div></div>`;
+      <div class="fr-view">${fields.map(([k,l])=>`<div class="blk"><div class="k">${l}</div><div class="v">${f(k)||'<span class="mut">—</span>'}</div></div>`).join("")}</div></div>`;
   }
   return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}</span></h3>
     ${pending.length ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:12px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Usa «Excel con todas las respuestas» para leerlas juntas y escribe aquí el resumen.</div>`}
     <div class="fr-grid">
-      <div class="full"><label>Reviewer Summary</label><textarea id="fr_summary" placeholder="Valoración global del año…">${f("summary")}</textarea></div>
-      <div><label>Main Positives</label><textarea id="fr_positives" placeholder="Lo que mejor ha hecho…">${f("positives")}</textarea></div>
-      <div><label>Main Areas of Development</label><textarea id="fr_development" placeholder="Dónde tiene que crecer…">${f("development")}</textarea></div>
-      <div><label>Key Quotes from Reviewers</label><textarea id="fr_quotes" placeholder="Frases literales de los compañeros (sin nombres si el ciclo es anónimo)…">${f("quotes")}</textarea></div>
-      <div><label>Objectives <input type="text" id="fr_year" value="${fr&&fr.objectives_year?fr.objectives_year:year}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px"></label><textarea id="fr_objectives" placeholder="Objetivos para el año que viene…">${f("objectives")}</textarea></div>
+      <div class="full"><label>Reviewer Summary</label><textarea id="fr_summary" placeholder="Valoración global…">${f("summary")}</textarea></div>
+      <div><label>Top 3 Achievements</label><textarea id="fr_positives" placeholder="Los tres logros principales…">${f("positives")}</textarea></div>
+      <div><label>Top 3 Areas of Development</label><textarea id="fr_development" placeholder="Las tres áreas en las que crecer…">${f("development")}</textarea></div>
+      ${is360 ? `<div class="full"><label>Objectives <input type="text" id="fr_year" value="${fr&&fr.objectives_year?fr.objectives_year:year}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px"></label><textarea id="fr_objectives" placeholder="Objetivos para el año que viene…">${f("objectives")}</textarea></div>` : ""}
     </div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Última edición ${fmtDT(fr.updated_at)}`:""}</span>
       <button class="btn" onclick="saveFinalReview(false)"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
-      <button class="btn pri" onclick="saveFinalReview(true)"><i class="ti ti-send"></i> Enviar a ${esc(p.first_name)}</button></div></div>`;
+      <button class="btn pri" onclick="saveFinalReview(true)"><i class="ti ti-send"></i> Enviar el resumen</button></div>
+    <div class="hint" style="margin-top:10px"><i class="ti ti-eye-off"></i> Enviar el resumen lo deja guardado en la ficha. ${esc(p.first_name)} no verá nada hasta que pulses «Mostrar resultados».</div></div>`;
 }
 async function saveFinalReview(send){
-  const { c, p } = window.REV_CTX; const g = x => document.getElementById(x);
-  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes:g("fr_quotes").value.trim()||null, objectives:g("fr_objectives").value.trim()||null, objectives_year:parseInt(g("fr_year").value)||null, updated_at:new Date().toISOString() };
+  const { c, p } = window.REV_CTX; const g = x => document.getElementById(x); const is360 = c.kind === '360';
+  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes:null,
+    objectives: is360 && g("fr_objectives") ? (g("fr_objectives").value.trim()||null) : null, objectives_year: is360 && g("fr_year") ? (parseInt(g("fr_year").value)||null) : null, updated_at:new Date().toISOString() };
   if(send && !row.summary) return toast("Escribe al menos el Reviewer Summary antes de enviar", true);
   const { error } = await sb.from("final_reviews").upsert(row, { onConflict:"cycle_id,reviewee_id" });
   if(error) return err(error, "No se pudo guardar el resumen");
   if(!send){ toast("Borrador guardado"); const st=g("frState"); if(st) st.textContent = "Guardado " + new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}); return; }
-  openModal(`<h2>¿Enviar el resumen a ${esc(p.first_name)}?</h2><p class="sm">${esc(fullName(p))} verá el resumen y sus resultados (según lo configurado en el ciclo) en «Mis resultados». Después no se podrá editar.</p>
+  openModal(`<h2>¿Enviar el resumen final?</h2><p class="sm">Queda guardado en la ficha de ${esc(fullName(p))} y ya no se podrá editar. ${esc(p.first_name)} <b>todavía no verá nada</b>: lo verá cuando pulses «Mostrar resultados».</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSendFinal()"><i class="ti ti-send"></i> Enviar</button></div>`);
 }
 async function doSendFinal(){
   closeModal(); const { c, p } = window.REV_CTX;
   const { error } = await sb.rpc("send_final_review", { p_cycle:c.id, p_reviewee:p.id });
-  if(error) return err(error, "No se pudo enviar"); toast(`Resumen enviado a ${p.first_name}`); render();
+  if(error) return err(error, "No se pudo enviar"); toast("Resumen final enviado"); render();
 }
-async function releaseOne(cycleId, revieweeId){
-  const { error } = await sb.rpc("release_cycle", { p_cycle: cycleId, p_reviewee: revieweeId });
-  if(error){ err(error,"No se pudo publicar"); return; } toast("Publicado"); render();
+// El lead decide cuándo la persona ve sus resultados (Hugo, 07-sep-2026)
+function showResults(){
+  const { c, p } = window.REV_CTX;
+  openModal(`<h2>¿Mostrar los resultados a ${esc(p.first_name)}?</h2><p class="sm">${esc(fullName(p))} verá en «Mis resultados» tu resumen final y sus gráficos, y recibirá el aviso de que ya puede verlos. No se puede deshacer.</p>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="closeModal();(async()=>{ const { error } = await sb.rpc('show_results', { p_cycle:'${c.id}', p_reviewee:'${p.id}' }); if(error) err(error,'No se pudo mostrar'); else { toast('Resultados mostrados a ${esc(p.first_name)}'); render(); } })()"><i class="ti ti-eye"></i> Mostrar resultados</button></div>`);
 }
 
 /* ---------- TODAS LAS EVALUACIONES (socios y admin) ---------- */
 let PART_CYCLE = null;
 PAGES.partners = async function(){
-  if(!canSeeAll()) return `<div class="lock"><i class="ti ti-lock"></i> Solo administración y las personas con acceso a todas las reviews.</div>`;
+  if(!canSeeAll()) return `<div class="lock"><i class="ti ti-lock"></i> Solo las personas con acceso a todas las reviews.</div>`;
   if(!CYCLES.length) return `<div class="card"><div class="emptystate">No hay ciclos creados.</div></div>`;
   PART_CYCLE = PART_CYCLE || CYCLES[0].id; const c = byId(CYCLES, PART_CYCLE);
   const { data:prog, error } = await sb.rpc("cycle_progress", { p_cycle: c.id }); if(error) throw error;
   const { data:rels } = await sb.from("releases").select("*").eq("cycle_id", c.id);
+  const { data:frs } = await sb.from("final_reviews").select("cycle_id,reviewee_id,status").eq("cycle_id", c.id);
   const people = {}; for(const r of prog){ (people[r.reviewee_id] ||= {name:r.reviewee, team:r.team, self:null, lead:null, peer:null})[r.role] = r; }
   const dot = r => !r ? '<span class="mut">—</span>' : r.submitted>=r.total ? `<span class="y">${r.submitted}/${r.total}</span>` : `<span class="p">${r.submitted}/${r.total}</span>`;
   return `<div class="row" style="margin-bottom:14px"><select class="inp" style="width:auto" onchange="PART_CYCLE=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)} · ${CYCLE_STATUS[x.status]}</option>`).join("")}</select>
-     <span class="sm mut">${Object.keys(people).length} personas evaluadas · ${(rels||[]).length} con resultados publicados</span>
-     <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>${isAdmin()&&c.status!=='draft'?`<button class="btn" onclick="releaseAll('${c.id}')"><i class="ti ti-send"></i> Publicar a todos</button>`:""}</div>
-   <div class="card"><table><tr><th>Persona</th><th>Equipo</th><th>Auto</th><th>Compañeros</th><th>Lead</th><th>Publicación</th><th></th></tr>
-   ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${rel?`<span class="y">${fmtD(rel.released_at)}</span>${rel.acknowledged_at?' · firmado':''}`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Abrir</button></td></tr>`; }).join("")}</table>
+     <span class="sm mut">${Object.keys(people).length} personas evaluadas · ${(rels||[]).length} con resultados mostrados</span>
+     <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button></div>
+   <div class="card"><table><tr><th>Persona</th><th>Equipo</th><th>Auto</th><th>Compañeros</th><th>Lead</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
+   ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); const fr = (frs||[]).find(f=>f.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${fr ? (fr.status==='sent' ? '<span class="y">enviado</span>' : '<span class="p">borrador</span>') : '<span class="mut">no</span>'}</td><td class="xs">${rel?`<span class="y">mostrados ${fmtD(rel.released_at)}</span>`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Abrir</button></td></tr>`; }).join("")}</table>
    ${!Object.keys(people).length?`<div class="emptystate">Este ciclo no tiene asignaciones.</div>`:""}</div>`;
 };
-async function releaseAll(cycleId){
-  openModal(`<h2>Publicar el ciclo a todas las personas</h2><p class="sm">Cada persona podrá leer lo que se ha dicho sobre ella según las reglas de visibilidad del ciclo. Conviene hacerlo cuando todas las valoraciones estén enviadas.</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="closeModal();(async()=>{const {data,error}=await sb.rpc('release_cycle',{p_cycle:'${cycleId}',p_reviewee:null}); if(error) err(error,'No se pudo publicar'); else { toast('Publicado a '+data+' persona(s)'); await loadCatalog(); render(); }})()">Publicar</button></div>`);
-}
 
 /* ---------- DIRECTORIO Y ORGANIGRAMA ---------- */
 // Sin rangos: cada rama muestra a sus socios y a su equipo (ordenado por antigüedad), con el puesto en la tarjeta.
@@ -1198,28 +1276,66 @@ let DIR_VIEW = "org";
 const bySeniority = (a,b) => (a.start_date||"").localeCompare(b.start_date||"") || a.last_name.localeCompare(b.last_name);
 function pcard(p, cls=""){ return `<div class="pcard ${cls}" onclick="personInfo('${p.id}')">${av(p,"sm")}<div style="min-width:0"><div class="pn">${esc(fullName(p))}</div><div class="pp">${esc(p.position||"")}</div></div></div>`; }
 const TEAMS3 = [["deal","Deal Team"],["operations","Operations"],["nest","Nest"]];
+// ---------- Organigrama oficial (transcrito de la foto que envió Hugo el 07-sep-2026) ----------
+// Cada persona se busca en el directorio por nombre para abrir su ficha; las entidades externas (Aiblu, Inloac) no.
+const ORG = {
+  board: [["Borja Martínez de la Rosa","Founding Partner, CIO, CISO, Board Secretary"],["Oriol Pinya","Founding Partner, Chairman and CEO"],["Federico Conchillo","Partner"],["Marc Faiges","Partner"],["Germán López","Partner"]],
+  compliance: [["Compliance Unit",[["Carol Codinas","Compliance Officer"]]],["Internal Audit Unit",[["Aiblu","External auditor",true]]],["Risk Control Unit",[["Inloac","International Logistics for Administration & Control",true]]]],
+  ic: [["Oriol Pinya",""],["Borja Martínez",""],["Federico Conchillo",""]],
+  invest: [["Oriol Pinya",""],["Borja Martínez",""],["Federico Conchillo",""]],
+  teams: [
+    ["PE Team","",[["Marc Faiges","Mid-Market Partner"],["Pol Ferrer","Mid-Market Director"]]],
+    ["Horizon Team","tint",[["Lluís Molins","Horizon Partner"],["Germán López","Horizon Partner"],["Laura Subías","Horizon VP"],["Gonzalo Saavedra","Horizon VP"]]],
+    ["Nest Team","tint",[["Joan Pina","Nest Partner"],["Marta Campillo","Nest Principal"],["Tristán Conde","Nest Associate"],["Victoria Moretti","Nest Analyst"]]],
+  ],
+  associates: ["PE Associates & Analysts",[["Josep Catafal","Senior Associate"],["Ramiro Rivera","Senior Associate"],["Ignacio Arenas","Associate"],["Víctor Julià","Associate"],["Joao Sousa Mendes","Associate"],["Miquel Petit","Associate"],["Oriol Borràs","Associate"],["Jorge Grima","Analyst"]]],
+  units: [
+    ["Adm. Finance & Valuation","tint",[["Mercè Barbé","CFO"]],["Finance Team",[["Cristina Ramón","Controller & RRHH"],["Hugo Mengual","Junior Controller"],["Maria Mas","Nest Controller"]]]],
+    ["Abac Fast Forward","",[["Joan Pina","Nest Director"]],null],
+    ["Legal & Compliance","",[["Carol Codinas","Director"]],null],
+    ["Fundraising & IR","",[["Valdesca Martínez","Director"]],null],
+    ["Office Management","",[["Ari Cuella","Office Manager & IT"],["Carlota Mas de Xaxàs","Team Assistant"]],null],
+    ["Sustainability","green",[["Oriol Pinya","Sustainability Officer"]],["Sustainability Team",[["Maria Mas","Sustainability Lead"]]]],
+  ],
+  aml: ["AML CTF Internal Committee",[["Oriol Pinya","Member"],["Borja Martínez","Chairman"],["Carol Codinas","Member"]]],
+};
+const _norm = t => (t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+function orgFind(name){
+  const parts = _norm(name).split(/\s+/); const first = parts[0], last = parts[1] || "";
+  return PEOPLE.find(p => { const fn = _norm(p.first_name), ln = _norm(p.last_name); return fn.split(/\s+/)[0] === first && (!last || ln.includes(last) || fn.includes(last)); })
+      || PEOPLE.find(p => _norm(fullName(p)).includes(first) && (!last || _norm(fullName(p)).includes(last)));
+}
+function orgP(item){
+  const [name, role, ext] = item; const p = ext ? null : orgFind(name);
+  return `<div class="oc-p ${ext?'ext':''}" ${p ? `onclick="personInfo('${p.id}')" title="Abrir ficha"` : ""}>${p ? `<span class="av">${av(p,"sm")}</span>` : ""}<span class="n">${esc(name)}</span>${role ? `<span class="r">${esc(role)}</span>` : ""}</div>`;
+}
+const orgPeople = (list, cols) => `<div class="oc-people ${cols ? 'cols-'+cols : ''}">${list.map(orgP).join("")}</div>`;
+function orgChartHTML(){
+  const box = (title, inner, cls="", small=false) => `<div class="oc-box ${cls}"><div class="oc-title ${small?'small':''}">${esc(title)}</div>${inner}</div>`;
+  const top = `<div class="oc-row oc-top">
+    ${box("Board of Directors", orgPeople(ORG.board, 5), "frame")}
+    ${box("Compliance & Internal Control", `<div class="oc-people cols-3">${ORG.compliance.map(([t, ppl]) => `<div class="oc-box" style="padding:8px"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl)}</div>`).join("")}</div>`, "frame")}
+  </div>`;
+  const left = `<div>
+    ${box("Investment Committee (1)", orgPeople(ORG.ic, 3), "frame")}
+    <div class="oc-conn dots"><i></i></div>
+    ${box("Investment Team - Investments, Analysis and Monitoring", orgPeople(ORG.invest, 3) + `<div class="oc-teams">${ORG.teams.map(([t, cls, ppl]) => `<div class="oc-box ${cls}"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl, ppl.length > 2 ? 2 : 1)}</div>`).join("")}</div>
+      <div class="oc-box" style="margin-top:12px"><div class="oc-title small">${esc(ORG.associates[0])}</div>${orgPeople(ORG.associates[1], 4)}</div>`, "frame")}
+  </div>`;
+  const right = `<div>
+    <div class="oc-units">${ORG.units.map(([t, cls, ppl, sub]) => `<div class="oc-box ${cls}"><div class="oc-title small">${esc(t)}</div>${orgPeople(ppl)}${sub ? `<div class="oc-sub"><div class="oc-title small">${esc(sub[0])}</div>${orgPeople(sub[1])}</div>` : ""}</div>`).join("")}</div>
+    <div class="oc-conn"><i></i></div>
+    ${box(ORG.aml[0], orgPeople(ORG.aml[1], 3), "frame")}
+  </div>`;
+  return `<div class="oc">${top}<div class="oc-conn"><i></i></div><div class="oc-row oc-main">${left}${right}</div></div>`;
+}
 PAGES.people = async function(){
   const act = PEOPLE.filter(p => p.active);
   const partners = act.filter(p => p.is_partner);
   const bar = `<div class="row" style="margin-bottom:16px"><div class="rb"><span class="${DIR_VIEW==='org'?'on':''}" onclick="DIR_VIEW='org';render()">Organigrama</span><span class="${DIR_VIEW==='teams'?'on':''}" onclick="DIR_VIEW='teams';render()">Por equipos</span><span class="${DIR_VIEW==='list'?'on':''}" onclick="DIR_VIEW='list';render()">Lista</span></div>
     <span class="sm mut" style="margin-left:12px">${act.length} personas · ${partners.length} socios · 3 equipos</span></div>`;
   if(DIR_VIEW === "org"){
-    const col = ([t,label]) => {
-      const socios = act.filter(p => p.team===t && p.is_partner).sort(bySeniority);
-      const equipo = act.filter(p => p.team===t && !p.is_partner).sort(bySeniority);
-      const group = (lbl, list, cls) => list.length ? `<div class="org-group"><div class="org-stem"></div><div class="org-glabel">${lbl} · ${list.length}</div><div class="org-gbox ${list.length===1?'one':''}">${list.map(p=>pcard(p,cls)).join("")}</div></div>` : "";
-      return `<div class="org-col"><div class="org-branch" style="background:${TEAM_COLOR[t]}"><div class="bt">${label}</div><div class="bn">${socios.length+equipo.length} personas${socios.length?` · ${socios.length} socio${socios.length>1?'s':''}`:''}</div></div>
-        ${group("Socios", socios, "partner")}${group("Equipo", equipo, "")}
-        ${!socios.length && !equipo.length ? `<div class="emptystate">Sin personas</div>` : ""}</div>`;
-    };
-    const noTeam = act.filter(p => !p.team);
-    return bar + `<div class="org">
-      <div class="org-root"><div class="t">Abac Capital</div><div class="s">${act.length} personas · ${partners.length} socios</div></div>
-      <div class="org-line"></div>
-      <div class="org-cols">${TEAMS3.map(col).join("")}</div>
-      ${noTeam.length?`<div class="card" style="margin-top:18px;width:100%"><h3>Sin equipo asignado</h3><div class="grid g4">${noTeam.map(p=>pcard(p)).join("")}</div></div>`:""}
-    </div>
-    <div class="hint" style="margin-top:14px">Dentro de cada rama, las personas van ordenadas por antigüedad en Abac y con su puesto en la tarjeta. No hay niveles ni dependencias: el equipo se muestra como equipo.</div>`;
+    return bar + orgChartHTML() + `<div class="hint" style="margin-top:14px">Organigrama oficial de Abac Capital. Los equipos que se usan en las evaluaciones (Deal Team, Operations y Nest) se ven en «Por equipos»; no cambian por lo que aparezca aquí.</div>`;
   }
   if(DIR_VIEW === "teams"){
     return bar + [...TEAMS3, [null,"Sin equipo"]].map(([t,label]) => { const list = act.filter(p => (p.team||null)===t).sort((a,b)=>(b.is_partner-a.is_partner) || bySeniority(a,b)); if(!list.length) return ""; return `<div style="margin-bottom:18px"><div class="row" style="margin-bottom:8px">${t?pillTeam(t):'<span class="pill gray">Sin equipo</span>'}<span class="sm mut">${list.length} personas</span></div>
@@ -1333,13 +1449,13 @@ const ADMIN = {
 
 /* ----- Ciclo: crear / editar ----- */
 const CYCLE_TEMPLATES = {
-  dic: { label:"Evaluación de diciembre · 360 por equipos", kind:"360", desc:"Cada persona se autoevalúa; Deal Team y Operations evalúan al Deal Team; todo el mundo evalúa a Operations; el lead reviewer cierra. La persona ve la media de sus compañeros (sin nombres) y la valoración de su lead.",
+  dic: { label:"Evaluación de diciembre · 360 por equipos", kind:"360", desc:"Cada persona se autoevalúa; Deal Team y Operations evalúan al Deal Team; todo el mundo evalúa a Operations; el resto de Nest y Operations evalúan a Nest; los equity partners evalúan a todo el mundo y a ellos nadie. El lead reviewer (asignado por administración) valora y escribe el resumen final. La persona solo ve ese resumen y sus gráficos agregados, cuando el lead pulsa «Mostrar resultados».",
          forms:{ self:"dic_self_lead", lead:"dic_self_lead", peer_deal:"dic_deal_peer", peer_operations:"dic_ops_peer", peer_nest:"dic_ops_peer", peer:"dic_ops_peer" },
-         visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:3, lead_after_peers:false, peers_see_self:false } },
-  jun: { label:"Mid Term Feedback · junio (cascada)", kind:"cascade", desc:"Cada persona se autoevalúa y elige a 2-3 compañeros y a su lead reviewer. Los compañeros leen la autoevaluación y opinan sin verse entre ellos; el lead lo lee todo y cierra; la persona lee lo que se ha dicho, con nombres.",
+         visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:false, peers_see_self:false } },
+  jun: { label:"Mid Term Feedback · junio (cascada)", kind:"cascade", desc:"Cada persona se autoevalúa y elige a 2-3 compañeros; el lead reviewer lo asigna administración. Compañeros y lead responden sin ver la autoevaluación; el lead la lee, junto con las respuestas de los compañeros, cuando ha enviado la suya y va a escribir el resumen. La persona solo ve el resumen del lead cuando este pulsa «Mostrar resultados».",
          forms:{ self:"jun_self", lead:"jun_lead", peer:"jun_peer" },
-         visibility:{ peers_attributed:true, reviewee_sees_peers:"full", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:true, peers_see_self:true, reviewee_picks:true } },
-  custom: { label:"Personalizada", kind:"360", desc:"Configura formularios y visibilidad a mano en los ajustes avanzados.", forms:{}, visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:3, lead_after_peers:false, peers_see_self:false } },
+         visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:true, peers_see_self:false, reviewee_picks:true } },
+  custom: { label:"Personalizada", kind:"360", desc:"Configura formularios y visibilidad a mano en los ajustes avanzados.", forms:{}, visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:false, peers_see_self:false } },
 };
 function fname(id){ const f = byId(FORMS, id); return f ? f.name.replace("Performance Evaluation (diciembre) · ","Diciembre · ").replace("Performance Evaluation (junio) · ","Junio · ") : "(sin cuestionario)"; }
 function readCycleForm(){
@@ -1489,7 +1605,8 @@ async function prefill360(cycleId){
     if(!isEvaluated(rv)) continue;
     const sf = roleForm(c,"self",rv); if(sf) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:rv.id, role:"self", form_id:sf});
     const pf = roleForm(c,"peer",rv); if(!pf) continue;
-    const reviewers = act.filter(r => r.id!==rv.id && (rv.team==='deal' ? ['deal','operations'].includes(r.team) : rv.team==='operations' ? true : rv.team==='nest' ? ['nest','operations'].includes(r.team) : false));
+    const equity = r => r.is_partner && !isEvaluated(r);   // equity partners: evalúan a todo el mundo, a ellos nadie
+    const reviewers = act.filter(r => r.id!==rv.id && (equity(r) || (rv.team==='deal' ? ['deal','operations'].includes(r.team) : rv.team==='operations' ? true : rv.team==='nest' ? ['nest','operations'].includes(r.team) : false)));
     for(const r of reviewers) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:r.id, role:"peer", form_id:pf});
   }
   if(!rows.length) return toast("Faltan formularios en el ciclo", true);
@@ -1497,7 +1614,7 @@ async function prefill360(cycleId){
   const nSelf = rows.filter(r=>r.role==='self').length, nPeer = rows.length - nSelf;
   openModal(`<h2>Rellenar con la regla de diciembre</h2>
     <p class="sm">Se crearán <b>${nSelf}</b> autoevaluaciones y <b>${nPeer}</b> reviews de compañeros:</p>
-    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>A cada persona del <b>Deal Team</b> la evalúan Deal Team y Operations.</li><li>A cada persona de <b>Operations</b> la evalúa todo el mundo: Deal Team, Operations y Nest.</li><li>A cada persona de <b>Nest</b> la evalúan el resto de Nest y Operations.</li><li>Solo entran como evaluadas las personas marcadas «se le evalúa» en Personas (los socios no, salvo los que se indique). El lead reviewer se asigna aparte («Lead reviewer por equipo» o uno a uno).</li></ul>
+    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>A cada persona del <b>Deal Team</b> la evalúan Deal Team y Operations.</li><li>A cada persona de <b>Operations</b> la evalúa todo el mundo: Deal Team, Operations y Nest.</li><li>Los <b>equity partners</b> evalúan a todo el mundo; a ellos no los evalúa nadie.</li><li>A cada persona de <b>Nest</b> la evalúan el resto de Nest y Operations.</li><li>Solo entran como evaluadas las personas marcadas «se le evalúa» en Personas (los socios no, salvo los que se indique). El lead reviewer se asigna aparte («Lead reviewer por equipo» o uno a uno).</li></ul>
     <p class="xs mut">Las asignaciones que ya existan no se duplican. Después puedes quitar o añadir compañeros a mano.</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="createPending()"><i class="ti ti-wand"></i> Crear ${rows.length} asignaciones</button></div>`);
 }
@@ -1545,10 +1662,30 @@ function moreActions(btn, cycleId){
   m.innerHTML = `<div class="sm-list">
     <div class="sm-item" onclick="closeSelMenu();prefillSelf('${cycleId}')"><i class="ti ti-user"></i> Añadir solo las autoevaluaciones</div>
     <div class="sm-item" onclick="closeSelMenu();exportAssign('${cycleId}')"><i class="ti ti-download"></i> Exportar a Excel (CSV)</div>
+    <div class="sm-item" onclick="closeSelMenu();reopenPicker('${cycleId}')"><i class="ti ti-lock-open"></i> Reabrir una respuesta enviada…</div>
     <div class="sm-item" style="color:var(--bad)" onclick="closeSelMenu();clearPending('${cycleId}')"><i class="ti ti-eraser" style="color:var(--bad)"></i> Quitar las asignaciones no empezadas</div></div>`;
   document.body.appendChild(m);
   const r = btn.getBoundingClientRect(); m.style.width = "300px"; m.style.left = Math.min(r.right - 300, window.innerWidth - 308) + "px"; m.style.top = (r.bottom + 6) + "px";
   requestAnimationFrame(() => m.classList.add("show")); SELMENU = m; SELOPEN = null;
+}
+// Reabrir una respuesta ya enviada para que la persona la corrija (Hugo, 07-sep-2026): el admin elige a quién y cuál
+function reopenPicker(cycleId, who){
+  const as = (window.ASG_CACHE||[]).filter(a => a.cycle_id===cycleId && a.status==='submitted');
+  if(!as.length) return toast("En este ciclo no hay respuestas enviadas");
+  const byReviewer = {}; for(const a of as) (byReviewer[a.reviewer_id] ||= []).push(a);
+  const reviewers = Object.keys(byReviewer).map(id => person(id)).filter(Boolean).sort(bySeniority);
+  who = who || reviewers[0].id;
+  const list = (byReviewer[who]||[]).sort((x,y)=>(x.role==='self'?0:x.role==='lead'?1:2)-(y.role==='self'?0:y.role==='lead'?1:2)).map(a => `<div class="chk" style="justify-content:space-between"><label><span class="pill ${a.role==='self'?'':a.role==='lead'?'ok':'warn'}" style="margin-right:8px">${ROLE_LABEL[a.role]}</span> ${a.role==='self' ? "su autoevaluación" : "sobre " + esc(fullName(person(a.reviewee_id)))} <span class="xs mut">· enviada ${fmtD(a.submitted_at)}</span></label><button class="btn sm" onclick="reopenAssign('${a.id}')"><i class="ti ti-lock-open"></i> Reabrir</button></div>`).join("");
+  const body = `<h2>Reabrir una respuesta enviada</h2><p class="sm mut">La respuesta vuelve a borrador con lo que había escrito; la persona puede corregirla y volver a guardarla como final. Queda anotado en Auditoría.</p>
+    <label class="xs mut">Persona que la escribió</label><select class="inp" id="rp_who" onchange="reopenPicker('${cycleId}', this.value)">${reviewers.map(r => `<option value="${r.id}" data-p="${r.id}" ${r.id===who?"selected":""}>${esc(fullName(r))} · ${byReviewer[r.id].length} enviada${byReviewer[r.id].length>1?'s':''}</option>`).join("")}</select>
+    <div id="pl" style="max-height:52vh;overflow:auto;margin-top:10px">${list}</div><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="closeModal()">Cerrar</button></div>`;
+  const open = document.querySelector('.modal-bg.open .modal');
+  if(open){ open.innerHTML = body; if(typeof enhanceSelects === 'function') enhanceSelects(open); } else openModal(body);
+}
+async function reopenAssign(id){
+  const { error } = await sb.rpc("reopen_assignment", { p_assignment:id });
+  if(error) return err(error, "No se pudo reabrir");
+  toast("Respuesta reabierta: la persona ya puede corregirla"); closeModal(); render();
 }
 // Editor de compañeros de una persona: casillas por equipo
 function editPeers(cycleId, revieweeId){
