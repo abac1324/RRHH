@@ -419,8 +419,8 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 
 /* ---------- Organigrama oficial (foto de Hugo, 07-sep-2026): lienzo fijo 1220x605 escalado ---------- */
 .ocw{width:100%;overflow:hidden}
-.ocx{position:relative;width:1220px;height:605px;transform-origin:0 0;font-family:Inter,system-ui,sans-serif;color:#1f2a44}
-.ocx svg{position:absolute;inset:0;width:1220px;height:605px;pointer-events:none}
+.ocx{position:relative;width:1220px;height:619px;transform-origin:0 0;font-family:Inter,system-ui,sans-serif;color:#1f2a44}
+.ocx svg{position:absolute;inset:0;width:1220px;height:619px;pointer-events:none}
 .ocx .bx{position:absolute;box-sizing:border-box;border:1px solid #b9c2d0;border-radius:6px;background:#fff;box-shadow:0 1px 2px rgba(14,33,80,.08)}
 .ocx .bx.frame{border:2px solid #8f9bb0;background:#f3f4f7}
 .ocx .bx.frame2{border:1.5px solid #9aa5ba;background:#fff}
@@ -435,8 +435,8 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .ocx .pp{position:absolute;box-sizing:border-box;border:1px solid #d7dde6;border-radius:5px;background:#fff;text-align:center;padding:4px 3px;cursor:pointer;display:flex;flex-direction:column;justify-content:center;align-items:center}
 .ocx .pp:hover{border-color:#8f9bb0;box-shadow:0 2px 6px rgba(14,33,80,.14)}
 .ocx .pp.ext{cursor:default}
-.ocx .pp .n{font-weight:700;font-size:10.5px;line-height:1.15;color:#1f2a44}
-.ocx .pp .r{font-size:8.5px;font-style:italic;color:#5c6675;line-height:1.15;margin-top:1px}
+.ocx .pp .n{font-weight:700;font-size:10.5px;line-height:1.15;color:#1f2a44;overflow-wrap:anywhere}
+.ocx .pp .r{font-size:8.5px;font-style:italic;color:#5c6675;line-height:1.15;margin-top:1px;overflow-wrap:anywhere}
 .ocx .pp.lg .n{font-size:11px}.ocx .pp.lg .r{font-size:9px}
 @media(max-width:1100px){.oc-top,.oc-main{grid-template-columns:1fr}.oc-units{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-teams{grid-template-columns:1fr}}
 </style>
@@ -1302,21 +1302,22 @@ function orgFind(name){
 // Lienzo del organigrama (1220 x 605, como la foto). Coordenadas en píxeles del lienzo.
 function orgChartHTML(){
   const B = []; const L = [];
-  const box = (x,y,w,h,cls="",title="",tcls="") => B.push(`<div class="bx ${cls}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">${title?`<div class="bt ${tcls}">${esc(title)}</div>`:""}</div>`);
-  const pp = (x,y,w,h,name,role,ext,lg) => { const q = ext ? null : orgFind(name); B.push(`<div class="pp ${ext?'ext':''} ${lg?'lg':''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px" ${q?`onclick="personInfo('${q.id}')" title="Abrir ficha"`:""}><span class="n">${esc(name)}</span>${role?`<span class="r">${esc(role)}</span>`:""}</div>`); };
-  const line = (x1,y1,x2,y2,dash) => L.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#4a5568" stroke-width="1.6" ${dash?'stroke-dasharray="3 3"':''}/>`);
+  const Y = y => y >= 108 ? y + 14 : y;   // la fila superior creció 14 px (cargos largos de Compliance): todo lo de abajo se desplaza
+  const box = (x,y,w,h,cls="",title="",tcls="") => B.push(`<div class="bx ${cls}" style="left:${x}px;top:${Y(y)}px;width:${w}px;height:${h}px">${title?`<div class="bt ${tcls}">${esc(title)}</div>`:""}</div>`);
+  const pp = (x,y,w,h,name,role,ext,lg) => { const q = ext ? null : orgFind(name); B.push(`<div class="pp ${ext?'ext':''} ${lg?'lg':''}" style="left:${x}px;top:${Y(y)}px;width:${w}px;height:${h}px" ${q?`onclick="personInfo('${q.id}')" title="Abrir ficha"`:""}><span class="n">${esc(name)}</span>${role?`<span class="r">${esc(role)}</span>`:""}</div>`); };
+  const line = (x1,y1,x2,y2,dash) => L.push(`<line x1="${x1}" y1="${Y(y1)}" x2="${x2}" y2="${Y(y2)}" stroke="#4a5568" stroke-width="1.6" ${dash?'stroke-dasharray="3 3"':''}/>`);
   const row = (items, x, y, w, h, gap, ext, lg) => { const cw = (w - gap*(items.length-1)) / items.length; items.forEach(([n,r,e], i) => pp(x + i*(cw+gap), y, cw, h, n, r, ext||e, lg)); };
 
   // ---- Board of Directors ----
-  box(10,8,782,100,"frame","Board of Directors");
-  box(20,32,762,70,"frame2");
-  row(ORG.board, 26,38, 750,58, 6, false, true);
+  box(10,8,782,114,"frame","Board of Directors");
+  box(20,32,762,82,"frame2");
+  row(ORG.board, 26,38, 750,70, 6, false, true);
   // ---- Compliance & Internal Control ----
-  box(812,8,400,100,"frame","Compliance & Internal Control");
-  ORG.compliance.forEach(([t, ppl], i) => { const x = 820 + i*124; box(x,34,116,66,"frame2",t,"sm"); ppl.forEach(([n,r,e]) => pp(x+6,54,104,40,n,r,e)); });
-  line(792,58,812,58,true);
+  box(812,8,400,114,"frame","Compliance & Internal Control");
+  ORG.compliance.forEach(([t, ppl], i) => { const x = 820 + i*124; box(x,34,116,80,"frame2",t,"sm"); ppl.forEach(([n,r,e]) => pp(x+6,54,104,54,n,r,e)); });
+  line(792,62,812,62,true);
   // ---- Tronco y ramas ----
-  line(376,108,376,130); line(240,130,1128,130);
+  line(376,122,376,130); line(240,130,1128,130);
   [240,500,570,685,795,905,1015,1128].forEach(x => line(x,130,x,148));
   line(500,130,500,505); line(500,505,518,505);
   // ---- Investment Committee ----
@@ -1351,21 +1352,21 @@ function orgChartHTML(){
   // Abac Fast Forward, Legal & Compliance, Fundraising & IR
   [[630,U[1]],[740,U[2]],[850,U[3]]].forEach(([x,u]) => { box(x,148,105,90,"",u[0],"sm"); pp(x+6,190,93,42,u[2][0][0],u[2][0][1]); });
   // Office Management
-  box(960,148,105,145,"",U[4][0],"sm");
-  U[4][2].forEach(([n,r], i) => pp(966,190+i*50,93,44,n,r));
+  box(960,148,105,155,"",U[4][0],"sm");
+  U[4][2].forEach(([n,r], i) => pp(966,190+i*54,93,50,n,r));
   // Sustainability -> Sustainability Team
-  box(1075,148,105,78,"green",U[5][0],"sm green");
-  pp(1081,182,93,38,U[5][2][0][0],U[5][2][0][1]);
-  line(1128,226,1128,236,true);
-  box(1075,236,105,78,"green",U[5][3][0],"sm green");
-  pp(1081,270,93,38,U[5][3][1][0][0],U[5][3][1][0][1]);
+  box(1075,148,105,84,"green",U[5][0],"sm green");
+  pp(1081,184,93,42,U[5][2][0][0],U[5][2][0][1]);
+  line(1128,232,1128,242,true);
+  box(1075,242,105,84,"green",U[5][3][0],"sm green");
+  pp(1081,278,93,42,U[5][3][1][0][0],U[5][3][1][0][1]);
   // ---- AML CTF Internal Committee ----
   box(518,465,318,82,"frame2",ORG.aml[0]);
   row(ORG.aml[1], 526,494, 302,44, 8);
 
-  return `<div class="ocw" id="ocw"><div class="ocx" id="ocx"><svg viewBox="0 0 1220 605">${L.join("")}</svg>${B.join("")}</div></div>`;
+  return `<div class="ocw" id="ocw"><div class="ocx" id="ocx"><svg viewBox="0 0 1220 619">${L.join("")}</svg>${B.join("")}</div></div>`;
 }
-function orgFit(){ const w = document.getElementById("ocw"), c = document.getElementById("ocx"); if(!w || !c) return; const k = w.clientWidth / 1220; /* ocupa todo el ancho disponible (Hugo, 07-sep-2026) */ c.style.transform = `scale(${k})`; w.style.height = Math.round(605 * k) + "px"; }
+function orgFit(){ const w = document.getElementById("ocw"), c = document.getElementById("ocx"); if(!w || !c) return; const k = w.clientWidth / 1220; /* ocupa todo el ancho disponible (Hugo, 07-sep-2026) */ c.style.transform = `scale(${k})`; w.style.height = Math.round(619 * k) + "px"; }
 window.addEventListener("resize", () => orgFit());
 AFTER.people = async function(){ orgFit(); };
 PAGES.people = async function(){
