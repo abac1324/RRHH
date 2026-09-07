@@ -1365,10 +1365,13 @@ AFTER.people = async function(){ orgFit(); };
 PAGES.people = async function(){
   const act = PEOPLE.filter(p => p.active);
   const partners = act.filter(p => p.is_partner);
-  const bar = `<div class="row" style="margin-bottom:16px"><div class="rb"><span class="${DIR_VIEW==='org'?'on':''}" onclick="DIR_VIEW='org';render()">Organigrama</span><span class="${DIR_VIEW==='teams'?'on':''}" onclick="DIR_VIEW='teams';render()">Por equipos</span><span class="${DIR_VIEW==='list'?'on':''}" onclick="DIR_VIEW='list';render()">Lista</span></div>
+  // El organigrama oficial está oculto de momento: solo lo ven los admins hasta que el CEO dé el visto bueno (Hugo, 07-sep-2026)
+  const orgOk = isAdmin() || !!(ME && ME.is_hr_admin);
+  if(DIR_VIEW === 'org' && !orgOk) DIR_VIEW = 'teams';
+  const bar = `<div class="row" style="margin-bottom:16px"><div class="rb">${orgOk ? `<span class="${DIR_VIEW==='org'?'on':''}" onclick="DIR_VIEW='org';render()">Organigrama</span>` : ""}<span class="${DIR_VIEW==='teams'?'on':''}" onclick="DIR_VIEW='teams';render()">Por equipos</span><span class="${DIR_VIEW==='list'?'on':''}" onclick="DIR_VIEW='list';render()">Lista</span></div>
     <span class="sm mut" style="margin-left:12px">${act.length} personas · ${partners.length} socios · 3 equipos</span></div>`;
   if(DIR_VIEW === "org"){
-    return bar + orgChartHTML() + `<div class="hint" style="margin-top:14px">Organigrama oficial de Abac Capital. Los equipos que se usan en las evaluaciones (Deal Team, Operations y Nest) se ven en «Por equipos»; no cambian por lo que aparezca aquí.</div>`;
+    return bar + orgChartHTML() + `<div class="hint" style="margin-top:14px"><i class="ti ti-eye-off"></i> Vista oculta para el equipo: de momento solo la ven los admins, hasta que el CEO dé el visto bueno. Organigrama oficial de Abac Capital; los equipos de las evaluaciones (Deal Team, Operations y Nest) se ven en «Por equipos» y no cambian por lo que aparezca aquí.</div>`;
   }
   if(DIR_VIEW === "teams"){
     return bar + [...TEAMS3, [null,"Sin equipo"]].map(([t,label]) => { const list = act.filter(p => (p.team||null)===t).sort((a,b)=>(b.is_partner-a.is_partner) || bySeniority(a,b)); if(!list.length) return ""; return `<div style="margin-bottom:18px"><div class="row" style="margin-bottom:8px">${t?pillTeam(t):'<span class="pill gray">Sin equipo</span>'}<span class="sm mut">${list.length} personas</span></div>
