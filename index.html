@@ -718,10 +718,9 @@ function renderNav(){
 let TASKS_BADGE = 0;
 function renderUserbox(){
   const roles = [];
-  if(isAdmin()) roles.push(`<span class="pill pur">Admin operativo</span>`);
+  if(isAdmin()) roles.push(`<span class="pill pur">Admin</span>`);
   if(isPartner()) roles.push(`<span class="pill navy">Socio</span>`);
-  if(ME && ME.is_hr_admin) roles.push(`<span class="pill pur">Admin RRHH</span>`);
-  if(canSeeAll() && !isAdmin() && !(ME && ME.is_hr_admin)) roles.push(`<span class="pill">Ve todas las reviews</span>`);
+  if(canSeeAll()) roles.push(`<span class="pill">Ve todas las reviews</span>`);
   if(hasLeadRole()) roles.push(`<span class="pill ok">Lead reviewer</span>`);
   document.getElementById("userbox").innerHTML = `
     <label>${DEV_MODE ? "Usuario" : "Conectado"}</label>
@@ -1366,7 +1365,7 @@ PAGES.people = async function(){
   const act = PEOPLE.filter(p => p.active);
   const partners = act.filter(p => p.is_partner);
   // El organigrama oficial está oculto de momento: solo lo ven los admins hasta que el CEO dé el visto bueno (Hugo, 07-sep-2026)
-  const orgOk = isAdmin() || !!(ME && ME.is_hr_admin);
+  const orgOk = isAdmin();
   if(DIR_VIEW === 'org' && !orgOk) DIR_VIEW = 'teams';
   const bar = `<div class="row" style="margin-bottom:16px"><div class="rb">${orgOk ? `<span class="${DIR_VIEW==='org'?'on':''}" onclick="DIR_VIEW='org';render()">Organigrama</span>` : ""}<span class="${DIR_VIEW==='teams'?'on':''}" onclick="DIR_VIEW='teams';render()">Por equipos</span><span class="${DIR_VIEW==='list'?'on':''}" onclick="DIR_VIEW='list';render()">Lista</span></div>
     <span class="sm mut" style="margin-left:12px">${act.length} personas · ${partners.length} socios · 3 equipos</span></div>`;
@@ -1383,7 +1382,7 @@ PAGES.people = async function(){
 function personInfo(id){
   const p = person(id); if(!p) return;
   openModal(`<div class="row" style="gap:14px">${av(p,"lg")}<div><h2 style="margin:0">${esc(fullName(p))}</h2><div class="mut sm">${esc(p.position||"")} · ${TEAM_LABEL[p.team]||"sin equipo"}</div></div></div>
-    <table style="margin-top:14px"><tr><td class="mut">Correo</td><td class="num">${esc(p.email)}</td></tr><tr><td class="mut">En Abac desde</td><td class="num">${fmtD(p.start_date)}</td></tr><tr><td class="mut">Roles en la app</td><td class="num">${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.is_hr_admin?'<span class="pill pur">Admin RRHH</span>':''}${!p.is_partner&&!p.is_admin&&!p.is_hr_admin?'<span class="pill gray">Empleado</span>':''}</td></tr></table>
+    <table style="margin-top:14px"><tr><td class="mut">Correo</td><td class="num">${esc(p.email)}</td></tr><tr><td class="mut">En Abac desde</td><td class="num">${fmtD(p.start_date)}</td></tr><tr><td class="mut">Roles en la app</td><td class="num">${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">Ve todas las reviews</span>':''}${!p.is_partner&&!p.is_admin&&!p.sees_all?'<span class="pill gray">Empleado</span>':''}</td></tr></table>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px">${isAdmin()?`<button class="btn" onclick="closeModal();editPerson('${p.id}')"><i class="ti ti-pencil"></i> Editar</button>`:""}<button class="btn pri" onclick="closeModal()">Cerrar</button></div>`);
 }
 
@@ -1470,7 +1469,7 @@ const ADMIN = {
     const { data:all, error } = await sb.from("people").select("*").order("last_name"); if(error) throw error;
     return `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editPerson(null)"><i class="ti ti-user-plus"></i> Nueva persona</button></div>
     <div class="card"><table><tr><th>Persona</th><th>Correo</th><th>Puesto</th><th>Equipo</th><th>Desde</th><th>Roles</th><th>Activa</th><th></th></tr>
-      ${all.map(p=>`<tr style="${p.active?'':'opacity:.5'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.is_hr_admin?'<span class="pill pur">Admin RRHH</span> ':''}${p.sees_all&&!p.is_hr_admin?'<span class="pill">ve todo</span> ':''}${p.is_evaluated===false?'<span class="pill gray">no se evalúa</span>':''}</td><td>${p.active?'<span class="y">sí</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Editar</button></td></tr>`).join("")}</table></div>`;
+      ${all.map(p=>`<tr style="${p.active?'':'opacity:.5'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Socio</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">ve todo</span> ':''}${p.is_evaluated===false?'<span class="pill gray">no se evalúa</span>':''}</td><td>${p.active?'<span class="y">sí</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Editar</button></td></tr>`).join("")}</table></div>`;
   },
   /* ----- Ajustes ----- */
   async settings(){
@@ -1771,22 +1770,21 @@ async function exportAssign(cycleId){
 
 /* ----- Personas ----- */
 function editPerson(id){
-  const p = id ? PEOPLE.find(x=>x.id===id) || {} : { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true, is_hr_admin:false };
+  const p = id ? PEOPLE.find(x=>x.id===id) || {} : { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true };
   openModal(`<h2>${id?"Editar persona":"Nueva persona"}</h2>
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Nombre</label><input type="text" id="p_fn" value="${esc(p.first_name||"")}"></div><div><label class="xs mut">Apellidos</label><input type="text" id="p_ln" value="${esc(p.last_name||"")}"></div>
     <div><label class="xs mut">Correo (login Microsoft)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Puesto</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
     <div><label class="xs mut">Equipo</label><select class="inp" id="p_team"><option value="">—</option>${Object.entries(TEAM_LABEL).map(([k,l])=>`<option value="${k}" ${p.team===k?"selected":""}>${l}</option>`).join("")}</select></div><div><label class="xs mut">Fecha de inicio</label><input type="date" id="p_sd" value="${p.start_date||""}"></div></div>
    <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Socio <span class="xs mut">(etiqueta y peso extra en la media ponderada)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Ve todas las reviews de la firma <span class="xs mut">(respuestas, expedientes y auditoría; es lo que tienen los 5 socios)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Ve todas las reviews de la firma <span class="xs mut">(Todas las reviews)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Se le evalúa <span class="xs mut">(entra como persona evaluada en los ciclos)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_hr" ${p.is_hr_admin?"checked":""} onchange="if(this.checked) document.getElementById('p_sees').checked = true"><label>Admin de RRHH <span class="xs mut">(ve las respuestas y los resúmenes de todo el mundo; no gestiona la app)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin operativo de la app <span class="xs mut">(crea ciclos, asigna, gestiona personas y hace pruebas; no ve respuestas)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin <span class="xs mut">(ciclos, asignaciones y personas)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_active" ${p.active!==false?"checked":""}><label>Activa (puede entrar y recibe asignaciones)</label></div>
    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="savePerson(${id?`'${id}'`:"null"})">Guardar</button></div>`);
 }
 async function savePerson(id){
   const g = x => document.getElementById(x);
-  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:g("p_sd").value||null, is_partner:g("p_partner").checked, sees_all:g("p_sees").checked || g("p_hr").checked, is_hr_admin:g("p_hr").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
+  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:g("p_sd").value||null, is_partner:g("p_partner").checked, sees_all:g("p_sees").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
   if(!row.first_name || !row.email) return toast("Nombre y correo son obligatorios", true);
   const r = id ? await sb.from("people").update(row).eq("id", id) : await sb.from("people").insert(row);
   if(r.error) return err(r.error,"No se pudo guardar"); closeModal(); toast("Guardado"); await loadCatalog(); render();
