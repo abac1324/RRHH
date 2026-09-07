@@ -493,7 +493,7 @@ const ROLE_LABEL = { self:"Autoevaluación", lead:"Lead Reviewer", peer:"Compañ
 const TEAM_LABEL = { deal:"Deal Team", operations:"Operations", nest:"Nest" };
 const TEAM_COLOR = { deal:"#0e2150", operations:"#3f86d6", nest:"#6c77a3" };
 const STATUS_LABEL = { pending:"Pendiente", draft:"Borrador", submitted:"Enviada" };
-const CYCLE_STATUS = { draft:"Borrador", open:"Abierto", closed:"Cerrado", published:"Publicado" };
+const CYCLE_STATUS = { draft:"Borrador", open:"Abierto", closed:"Cerrado", published:"Cerrado" };   // 'published' se conserva por compatibilidad; ya no se publica en bloque
 
 let sb = null;              // cliente Supabase
 let ME = null;              // fila de people del usuario actual
@@ -1106,14 +1106,7 @@ function drawResults(view){
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
 
-async function ack(cycleId){
-  const c = document.getElementById("ack_"+cycleId);
-  const { error } = await sb.from("releases").update({ acknowledged_at: new Date().toISOString(), ack_comment: c ? c.value : null }).eq("cycle_id", cycleId).eq("reviewee_id", ME.id);
-  if(error){ err(error, "No se pudo firmar"); return; }
-  toast("Acuse registrado"); render();
-}
-
-/* ---------- MI EQUIPO (lead reviewer) ---------- */
+/* ---------- LEAD REVIEWER (antes «Mi equipo») ---------- */
 PAGES.team = async function(){
   const { data, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("reviewer_id", ME.id).eq("role","lead");
   if(error) throw error;
@@ -1395,7 +1388,7 @@ function personInfo(id){
 PAGES.audit = async function(){
   const { data, error } = await sb.from("audit_log").select("*").order("at", {ascending:false}).limit(300);
   if(error) throw error;
-  const ACTION = { submit:"Envió una evaluación", read_results:"Leyó sus resultados", release:"Publicó", import:"Importó" };
+  const ACTION = { submit:"Envió una evaluación", resubmit:"Volvió a enviar una evaluación corregida", read_results:"Leyó sus resultados", read_results_of:"Leyó los resultados de otra persona", send_final_review:"Envió el resumen final", show_results:"Mostró los resultados a la persona", reopen_assignment:"Reabrió una respuesta enviada", choose_reviewers:"Eligió a sus compañeros", release:"Publicó", import:"Importó" };
   return `<div class="card"><h3><i class="ti ti-shield-lock"></i> Registro <span class="r">${data.length} entradas (últimas 300)</span></h3>
     <table><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Sobre quién</th><th>Ciclo</th></tr>
     ${data.map(a => `<tr><td class="xs mut">${fmtDT(a.at)}</td><td class="sm">${esc(a.actor_email||"")}</td><td class="sm">${ACTION[a.action]||esc(a.action)} ${a.details&&a.details.role?`<span class="tag">${ROLE_LABEL[a.details.role]||a.details.role}</span>`:""}</td><td class="sm">${a.person_id?esc(fullName(person(a.person_id))):"—"}</td><td class="xs mut">${a.cycle_id?esc((byId(CYCLES,a.cycle_id)||{}).name||""):""}</td></tr>`).join("")}</table>
@@ -1415,21 +1408,21 @@ PAGES.admin = async function(){
 const ADMIN = {
   /* ----- Ciclos ----- */
   async cycles(){
-    const anyOpen = CYCLES.some(c=>c.status==="open"), anyPub = CYCLES.some(c=>c.status==="published");
+    const anyOpen = CYCLES.some(c=>c.status==="open"), anyPub = CYCLES.some(c=>c.status==="closed" || c.status==="published");
     const { data:asg } = CYCLES.length ? await sb.from("assignments").select("cycle_id").limit(1) : {data:[]};
     const guide = `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-route"></i> Cómo se lanza una review <span class="r">cuatro pasos, siempre en este orden</span></h3>
       <div class="steps4">
         <div class="step4 ${CYCLES.length?'done':''}"><div class="k">${CYCLES.length?'<i class="ti ti-check"></i>':'1'}</div><div class="t">Crear el ciclo</div><div class="d">Elige la plantilla (diciembre o junio), el nombre y las fechas.</div></div>
-        <div class="step4 ${asg&&asg.length?'done':''}"><div class="k">${asg&&asg.length?'<i class="ti ti-check"></i>':'2'}</div><div class="t">Asignar</div><div class="d">Quién se autoevalúa, quién es lead de quién y qué compañeros opinan. Hay una propuesta automática.</div></div>
+        <div class="step4 ${asg&&asg.length?'done':''}"><div class="k">${asg&&asg.length?'<i class="ti ti-check"></i>':'2'}</div><div class="t">Asignar</div><div class="d">Quién se autoevalúa, quién es lead reviewer de quién (según el archivo del CEO) y qué compañeros opinan. En diciembre hay una propuesta automática; en junio los compañeros los elige cada persona.</div></div>
         <div class="step4 ${anyOpen||anyPub?'done':''}"><div class="k">${anyOpen||anyPub?'<i class="ti ti-check"></i>':'3'}</div><div class="t">Abrir</div><div class="d">Cambia el estado a «Abierto»: cada persona ve sus reviews en «Mis reviews».</div></div>
-        <div class="step4 ${anyPub?'done':''}"><div class="k">${anyPub?'<i class="ti ti-check"></i>':'4'}</div><div class="t">Publicar</div><div class="d">Cuando todo esté enviado, publica desde «Todas las reviews». Cada persona lee lo suyo.</div></div>
+        <div class="step4 ${anyPub?'done':''}"><div class="k">${anyPub?'<i class="ti ti-check"></i>':'4'}</div><div class="t">Cerrar</div><div class="d">Cada lead reviewer envía su resumen y pulsa «Mostrar resultados» en la ficha de cada persona. Cuando todo está hecho, cambia el estado a «Cerrado». Cerrar no muestra nada por sí mismo.</div></div>
       </div></div>`;
     return guide + `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editCycle(null)"><i class="ti ti-plus"></i> Nuevo ciclo</button></div>
-    ${CYCLES.length ? `<div class="card"><table><tr><th>Ciclo</th><th>Tipo</th><th>Fechas</th><th>Estado</th><th>Avance</th><th>Qué verá cada persona</th><th></th></tr>
+    ${CYCLES.length ? `<div class="card"><table><tr><th>Ciclo</th><th>Tipo</th><th>Fechas</th><th>Estado</th><th>Avance</th><th>Qué ve la persona evaluada</th><th></th></tr>
       ${CYCLES.map(c => { const v = c.visibility||{}; return `<tr><td class="b">${esc(c.name)}<div class="xs mut">${esc(c.period_label||"")}</div></td><td><span class="pill pur">${c.kind==='cascade'?'Cascada (junio)':'360 (diciembre)'}</span></td><td class="xs">${fmtD(c.opens_at)} → ${fmtD(c.closes_at)}</td>
         <td><select class="inp" style="width:auto;padding:4px 6px;font-size:12px" onchange="setCycleStatus('${c.id}',this.value)">${Object.entries(CYCLE_STATUS).map(([k,l])=>`<option value="${k}" ${c.status===k?"selected":""}>${l}</option>`).join("")}</select></td>
-        <td><span class="flow" title="Creado · Asignado · Abierto · Publicado"><i class="on"></i><i class="${(c.cycle_forms||[]).length?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${c.status==='published'?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">sin formularios</div>'}</td>
-        <td class="xs">${v.reviewee_sees_peers==='none'?"Solo su autoevaluación":v.reviewee_sees_peers==='full'?(v.peers_attributed?"Todo, con nombres":"Todo, sin nombres"):"La media de sus compañeros"}${v.reviewee_sees_lead===false?"":" y la valoración del lead"}</td>
+        <td><span class="flow" title="Creado · Asignado · Abierto · Cerrado"><i class="on"></i><i class="${(c.cycle_forms||[]).length?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${['closed','published'].includes(c.status)?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">sin formularios</div>'}</td>
+        <td class="xs">El resumen final de su lead reviewer${c.kind==='360'?" y sus gráficos (medias, sin nombres)":""}, cuando el lead pulsa «Mostrar resultados»</td>
         <td style="text-align:right;white-space:nowrap"><button class="btn sm" onclick="editCycle('${c.id}')">Editar</button> <button class="btn sm" onclick="ADM.tab='assign';ADM.cycle='${c.id}';render()">Asignaciones</button></td></tr>`; }).join("")}</table></div>`
      : `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-calendar-plus"></i></div><div class="t">Aún no hay ningún ciclo</div><div class="d">Empieza por «Nuevo ciclo»: con la plantilla de diciembre o de junio queda configurado en un minuto.</div><button class="btn pri" style="margin-top:14px" onclick="editCycle(null)"><i class="ti ti-plus"></i> Nuevo ciclo</button></div></div>`}`;
   },
@@ -1463,8 +1456,7 @@ const ADMIN = {
     return `<div class="row" style="margin-bottom:14px;gap:10px;flex-wrap:wrap">
       <select class="inp" style="width:auto" onchange="ADM.cycle=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
       <span class="sm mut">${as.length} asignaciones · ${Object.keys(byRev).length} personas · ${sent} enviadas</span><span style="flex:1"></span>
-      <button class="btn pri" onclick="prefill360('${c.id}')"><i class="ti ti-wand"></i> Rellenar con la regla de diciembre</button>
-      <button class="btn" onclick="bulkLeads('${c.id}')"><i class="ti ti-user-check"></i> Lead reviewer por equipo</button>
+      <button class="btn pri" onclick="prefill360('${c.id}')" title="Crea autoevaluaciones y compañeros. El lead reviewer queda vacío: se pone a mano con el archivo del CEO."><i class="ti ti-wand"></i> Rellenar con la regla de diciembre</button>
       <button class="btn" onclick="moreActions(this,'${c.id}')"><i class="ti ti-dots"></i></button></div>
     ${!hasForm('self')||!hasForm('peer')||!hasForm('lead') ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> A este ciclo le falta el cuestionario de ${['self','lead','peer'].filter(r=>!hasForm(r)).map(r=>ROLE_LABEL[r]).join(", ")}. Edítalo en «Ciclos» antes de asignar.</div>` : ""}
     <div class="card" style="padding-top:8px"><table><tr><th style="width:26%">Persona</th><th style="width:16%">Autoevaluación</th><th style="width:24%">Lead reviewer</th><th>Compañeros que la evalúan</th></tr>${rows}</table>
@@ -1480,7 +1472,7 @@ const ADMIN = {
   /* ----- Ajustes ----- */
   async settings(){
     return `<div class="grid g2"><div class="card"><h3>Modo sin login</h3>
-      <p class="sm">Mientras esté <b>activado</b>, la versión de construcción de la app permite entrar como cualquier persona sin contraseña. <b>Desactívalo antes de cargar respuestas reales o de publicar la app.</b></p>
+      <p class="sm">Mientras esté <b>activado</b>, la versión de construcción de la app permite entrar como cualquier persona sin contraseña. <b>Debe estar desactivado siempre que haya respuestas reales; ábrelo solo para una prueba puntual y vuelve a cerrarlo.</b></p>
       <div class="row"><span class="pill ${SETTINGS.dev_mode?'warn':'ok'}">${SETTINGS.dev_mode?'ACTIVADO':'desactivado'}</span><button class="btn sm" onclick="toggleDev(${!SETTINGS.dev_mode})">${SETTINGS.dev_mode?'Desactivar':'Activar'}</button></div>
       <div class="hint">${esc(SETTINGS.note||"")}</div></div>
     <div class="card"><h3>Formularios cargados</h3><table><tr><th>Código</th><th>Nombre</th><th class="num">Secciones</th><th class="num">Preguntas</th></tr>${FORMS.map(f=>`<tr><td class="b">${esc(f.code)}</td><td class="sm">${esc(f.name)}</td><td class="num">${f.form_sections.length}</td><td class="num">${f.form_sections.reduce((a,s)=>a+s.questions.length,0)}</td></tr>`).join("")}</table><div class="hint">Los formularios se cargan con los SQL de «3 - Base de datos». Aquí solo se consultan.</div></div></div>`;
@@ -1504,23 +1496,20 @@ function readCycleForm(){
   return {
     name:g("cy_name").value.trim(), kind:g("cy_kind").value, period_label:g("cy_period").value.trim()||null, opens_at:g("cy_open").value||null, closes_at:g("cy_close").value||null,
     forms:{ self:g("cf_self").value, lead:g("cf_lead").value, peer_deal:g("cf_peer_deal").value, peer_operations:g("cf_peer_operations").value, peer_nest:g("cf_peer_nest").value },
-    visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||3, reviewee_sees_lead:g("v_lead").checked, peers_see_self:g("v_pself").checked, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
+    visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||0, reviewee_sees_lead:g("v_lead").checked, peers_see_self:false, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
   };
 }
 function updateSummary(){
   const el = document.getElementById("cy_summary"); if(!el) return;
-  const f = readCycleForm(), v = f.visibility, fo = f.forms;
+  const f = readCycleForm(), v = f.visibility, fo = f.forms, kind = f.kind;
   document.querySelectorAll(".opt").forEach(o => o.classList.toggle("on", o.querySelector("input").checked));
   const peersForms = [["Deal Team",fo.peer_deal],["Operations",fo.peer_operations],["Nest",fo.peer_nest]];
   const same = peersForms.every(x => x[1] === peersForms[0][1]);
   const li = [];
-  li.push(`Cada persona rellena su <b>autoevaluación</b> (${esc(fname(fo.self))})${v.reviewee_picks ? " y <b>elige</b> a 2-3 compañeros y a su lead reviewer" : ""}.`);
-  li.push(`Sus <b>compañeros</b> la evalúan ${same ? `con el cuestionario ${esc(fname(fo.peer_deal))}` : `con un cuestionario según su equipo: ${peersForms.map(x=>`${x[0]} → ${esc(fname(x[1]))}`).join("; ")}`}.${v.peers_see_self ? " Antes de opinar leen su autoevaluación." : ""}`);
-  li.push(`Su <b>lead reviewer</b> escribe la valoración final (${esc(fname(fo.lead))})${v.lead_after_peers ? ", y solo puede enviarla cuando todos los compañeros han enviado la suya" : ""}.`);
-  const peersTxt = v.reviewee_sees_peers === "none" ? "nada de lo que han dicho sus compañeros"
-    : v.reviewee_sees_peers === "full" ? "todo lo que han escrito sus compañeros, con sus nombres"
-    : `la media de las notas de sus compañeros y sus comentarios sin nombres (solo si han respondido al menos ${v.anon_threshold})`;
-  li.push(`Al <b>publicar</b>, la persona verá su autoevaluación, ${peersTxt}${v.reviewee_sees_lead ? " y la valoración de su lead reviewer" : ""}.`);
+  li.push(`Cada persona rellena su <b>autoevaluación</b> (${esc(fname(fo.self))})${v.reviewee_picks ? " y <b>elige</b> a 2-3 compañeros; su lead reviewer lo asigna administración" : ""}.`);
+  li.push(`Sus <b>compañeros</b> la evalúan ${same ? `con el cuestionario ${esc(fname(fo.peer_deal))}` : `con un cuestionario según su equipo: ${peersForms.map(x=>`${x[0]} → ${esc(fname(x[1]))}`).join("; ")}`}, sin ver su autoevaluación ni las respuestas de los demás.`);
+  li.push(`Su <b>lead reviewer</b> escribe su valoración (${esc(fname(fo.lead))})${v.lead_after_peers ? " (solo puede enviarla cuando todos los compañeros han enviado la suya)" : ""} y, con todas las respuestas delante, el <b>resumen final</b>.${kind==='cascade' ? " En junio no lee la autoevaluación ni las respuestas hasta haber enviado su valoración." : ""}`);
+  li.push(`La persona <b>no ve nada</b> hasta que su lead reviewer pulsa <b>«Mostrar resultados»</b>: entonces ve el resumen final${kind==='cascade' ? " y los objetivos de su último diciembre" : v.reviewee_sees_peers === "none" ? "" : " y sus gráficos con las medias de sus compañeros, sin nombres ni opiniones individuales"}.`);
   el.innerHTML = `<div class="t">Así funcionará esta review</div><ol>${li.map(x=>`<li>${x}</li>`).join("")}</ol>`;
 }
 function applyTemplate(key){
@@ -1532,7 +1521,7 @@ function applyTemplate(key){
   g("cf_peer_deal").value = fid(t.forms.peer_deal||t.forms.peer||""); g("cf_peer_operations").value = fid(t.forms.peer_operations||t.forms.peer||""); g("cf_peer_nest").value = fid(t.forms.peer_nest||t.forms.peer||"");
   const v = t.visibility;
   const r = document.querySelector(`input[name="vmode"][value="${v.reviewee_sees_peers}"]`); if(r) r.checked = true;
-  g("v_thr").value = v.anon_threshold; g("v_lead").checked = v.reviewee_sees_lead; g("v_pself").checked = v.peers_see_self; g("v_lap").checked = v.lead_after_peers; g("v_picks").checked = !!v.reviewee_picks;
+  g("v_thr").value = v.anon_threshold; g("v_lead").checked = v.reviewee_sees_lead; g("v_lap").checked = v.lead_after_peers; g("v_picks").checked = !!v.reviewee_picks;
   g("adv").open = (key === "custom");
   const missing = [...new Set(Object.values(t.forms).filter(code => code && !fid(code)))];
   g("tpl_warn").hidden = !missing.length; if(missing.length) g("tpl_warn").textContent = "Los cuestionarios de esta plantilla todavía no están cargados en la base de datos. Se podrá usar cuando estén.";
@@ -1541,7 +1530,7 @@ function applyTemplate(key){
   syncSelects(document.getElementById("modal")); updateSummary();
 }
 function editCycle(id){
-  const c = id ? byId(CYCLES,id) : { name:"", kind:"360", period_label:"", opens_at:"", closes_at:"", status:"draft", visibility:{peers_attributed:false,reviewee_sees_peers:"aggregate",reviewee_sees_lead:true,anon_threshold:3,lead_after_peers:false,peers_see_self:false}, cycle_forms:[] };
+  const c = id ? byId(CYCLES,id) : { name:"", kind:"360", period_label:"", opens_at:"", closes_at:"", status:"draft", visibility:{peers_attributed:false,reviewee_sees_peers:"aggregate",reviewee_sees_lead:true,anon_threshold:0,lead_after_peers:false,peers_see_self:false}, cycle_forms:[] };
   const v = c.visibility||{}; const cf = r => ((c.cycle_forms||[]).find(x=>x.role===r&&!x.team)||{}).form_id||"";
   const cfTeam = (r,t) => ((c.cycle_forms||[]).find(x=>x.role===r&&x.team===t)||{}).form_id || cf(r);
   const fopts = sel => `<option value="">—</option>${FORMS.map(f=>`<option value="${f.id}" ${f.id===sel?"selected":""}>${esc(fname(f.id))}</option>`).join("")}`;
@@ -1563,16 +1552,15 @@ function editCycle(id){
      <tr><td>Los compañeros, cuando evalúan a alguien de <b>Operations</b></td><td><select class="inp" id="cf_peer_operations">${fopts(cfTeam('peer','operations'))}</select></td></tr>
      <tr><td>Los compañeros, cuando evalúan a alguien de <b>Nest</b></td><td><select class="inp" id="cf_peer_nest">${fopts(cfTeam('peer','nest'))}</select></td></tr>
    </table>
-   <h3 style="margin-top:16px">2 · Qué verá cada persona de lo que han dicho sus compañeros</h3>
+   <h3 style="margin-top:16px">2 · Gráficos de la persona evaluada</h3>
+   <p class="sm mut" style="margin:0 0 10px">La persona nunca ve opiniones individuales: solo el resumen final de su lead reviewer. Aquí se decide si además ve gráficos con las medias de sus compañeros.</p>
    <div class="opts">
-     ${opt("aggregate","chart-bar","Solo la media","Ve la nota media de sus compañeros y los comentarios sin saber quién los escribió. Es lo habitual en diciembre.")}
-     ${opt("full","users","Todo, con nombres","Ve cada respuesta y quién la ha escrito. Es lo que se hace en junio, con dos compañeros.")}
-     ${opt("none","eye-off","Nada","Solo la leen su lead reviewer y los socios.")}
+     ${opt("aggregate","chart-bar","Con gráficos","Araña y barras con las medias de sus compañeros, sin nombres. Es lo de diciembre.")}
+     ${opt("none","eye-off","Sin gráficos","Solo el resumen final del lead reviewer. Es lo de junio.")}
    </div>
-   <div style="margin-top:10px;font-size:13px;line-height:2">La media solo se muestra si han respondido al menos <input type="text" class="numin" id="v_thr" value="${v.anon_threshold??3}"> compañeros, para que nadie pueda deducir quién dijo qué.</div>
+   <div style="margin-top:10px;font-size:13px;line-height:2">Los gráficos se muestran a partir de <input type="text" class="numin" id="v_thr" value="${v.anon_threshold??0}"> compañeros con respuesta (0 = siempre).</div>
    <h3 style="margin-top:16px">3 · Otras reglas</h3>
    ${sw("v_lead", v.reviewee_sees_lead!==false, "La persona también verá la valoración de su lead reviewer")}
-   ${sw("v_pself", !!v.peers_see_self, "Los compañeros leen la autoevaluación antes de opinar", "Así se hace en junio: primero la persona cuenta su año y después los compañeros lo contrastan.")}
    ${sw("v_lap", !!v.lead_after_peers, "El lead reviewer cierra el último", "No puede enviar su valoración hasta que todos los compañeros hayan enviado la suya.")}
    ${sw("v_picks", !!v.reviewee_picks, "Cada persona elige a sus revisores", "Como en el Mid Term Feedback de junio: la persona elige 2-3 compañeros y su lead reviewer desde su autoevaluación. Si está apagado, los asigna administración.")}
    </details>
