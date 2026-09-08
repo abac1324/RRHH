@@ -731,7 +731,7 @@ function renderUserbox(){
   document.getElementById("userbox").innerHTML = `
     <label>${DEV_MODE ? "Usuario" : "Conectado"}</label>
     <div class="uc">${av(ME)}<div style="min-width:0"><div class="uc-name">${esc(fullName(ME))}</div><div class="uc-role">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div></div>
-    ${DEV_MODE ? `<select onchange="setDevUser(this.value)">${PEOPLE.slice().sort((a,b)=>a.first_name.localeCompare(b.first_name)).map(p=>`<option value="${esc(p.email)}" data-p="${p.id}" ${p.email===ME.email?"selected":""}>${esc(fullName(p))}</option>`).join("")}</select>`
+    ${DEV_MODE ? `<select onchange="setDevUser(this.value)">${PEOPLE.slice().sort((a,b)=>a.first_name.localeCompare(b.first_name)).map(p=>`<option value="${esc(p.email)}" data-p="${p.id}" ${p.email===ME.email?"selected":""}>${esc(fullName(p))}${p.sim_note ? " · " + esc(p.sim_note) : ""}</option>`).join("")}</select>`
                : `<button class="btn sm" style="width:100%;justify-content:center" onclick="logout()"><i class="ti ti-logout"></i> Cerrar sesión</button>`}
     <div class="role">${roles.join("")}</div>`;
   enhanceSelects(document.getElementById("userbox"));
@@ -886,14 +886,15 @@ function scaleHTML(q, val, editable, qid){
 }
 // Obligatoriedad efectiva (Hugo, 08-sep-2026): lo marcado como obligatorio en el cuestionario, salvo Investment Judgement y
 // Hard Technical Skills cuando alguien de Operations evalúa a alguien del Deal Team (misma regla en submit_assignment, en la base de datos)
-function isRequired(q, a){
+function isRequired(q, a, sec){
   a = a || (CUR && CUR.a); if(!q.required) return false;
   if((q.code === 'judgement' || q.code === 'hard_skills') && a && a.reviewer && a.reviewee && a.reviewer.team === 'operations' && a.reviewee.team === 'deal') return false;
+  if(sec && sec.title === 'Work Recognition' && a && a.role === 'lead') return false;   // «Section to be filled by Reviewee ONLY (& optional for Lead Reviewer)»
   return true;
 }
 function renderEditable(groups){
   return groups.map(g => `<div class="card" style="margin-bottom:16px"><h3>${esc(g.section.title)}</h3>${g.section.help?`<div class="hint" style="margin:-6px 0 12px">${esc(g.section.help)}</div>`:""}
-    ${g.questions.map(q => { const a = CUR.answers[q.id] || {}; return `<div class="q"><div class="qt">${esc(q.text)} ${isRequired(q)?'<span class="n" title="obligatoria">*</span>':'<span class="tag">opcional</span>'}</div>${q.help?`<div class="xs mut" style="margin:-4px 0 8px">${esc(q.help)}</div>`:""}
+    ${g.questions.map(q => { const a = CUR.answers[q.id] || {}; return `<div class="q"><div class="qt">${esc(q.text)} ${isRequired(q, null, g.section)?'<span class="n" title="obligatoria">*</span>':'<span class="tag">opcional</span>'}</div>${q.help?`<div class="xs mut" style="margin:-4px 0 8px">${esc(q.help)}</div>`:""}
       ${q.kind==='scale' ? scaleHTML(q, a.value_num, true, q.id) : `<textarea data-q="${q.id}" placeholder="Escribe aquí…" oninput="queueSave('${q.id}', this.value)" ${q.kind==='short_text'?'style="min-height:44px"':''}>${esc(a.value_text||"")}</textarea>`}</div>`; }).join("")}</div>`).join("");
 }
 function renderReadonly(form, role, ansList){
@@ -933,7 +934,7 @@ async function submitCurrent(){
   // comprobar obligatorias en cliente para dar un mensaje claro (el servidor vuelve a comprobar)
   const groups = questionsFor(CUR.form, CUR.a.role);
   const missing = [];
-  for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(isRequired(q) && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
+  for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(isRequired(q, null, g.section) && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
   if(missing.length){ openModal(`<h2>Faltan respuestas obligatorias</h2><ul class="sm">${missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul><div style="text-align:right"><button class="btn pri" onclick="closeModal()">Volver al formulario</button></div>`); return; }
   openModal(`<h2>¿Enviar la respuesta?</h2><p class="sm"><b>Una vez enviada no podrás volver a editarla.</b> Si hubiera un error, administración puede reabrirla. ${CUR.a.role==='peer'?"Ningún otro compañero ni la persona evaluada verán tu respuesta; solo su lead reviewer.":CUR.a.role==='lead'?"Después podrás leer las respuestas de los compañeros y escribir el resumen final.":"Tu lead reviewer la leerá cuando escriba tu resumen final."}</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-send"></i> Enviar respuesta</button></div>`);
