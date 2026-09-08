@@ -889,7 +889,9 @@ function scaleHTML(q, val, editable, qid){
 function isRequired(q, a, sec){
   a = a || (CUR && CUR.a); if(!q.required) return false;
   if((q.code === 'judgement' || q.code === 'hard_skills') && a && a.reviewer && a.reviewee && a.reviewer.team === 'operations' && a.reviewee.team === 'deal') return false;
-  if(sec && sec.title === 'Work Recognition' && a && a.role === 'lead') return false;   // «Section to be filled by Reviewee ONLY (& optional for Lead Reviewer)»
+  // Todo el mundo ve la plantilla entera de cada equipo (Hugo, 08-sep-2026); lo que el Word reserva al evaluado o al lead sale opcional para los demás
+  if(sec && sec.title === 'Work Recognition' && a && a.role !== 'self') return false;   // «Section to be filled by Reviewee ONLY (& optional for Lead Reviewer)»
+  if(sec && sec.title === 'Firm Contribution' && a && a.role === 'peer') return false;  // «Section ONLY to be filled by Reviewee and Lead Reviewer»
   return true;
 }
 function renderEditable(groups){
@@ -1730,7 +1732,7 @@ async function mailSendNow(quiet){
 /* ----- Ciclo: crear / editar ----- */
 const CYCLE_TEMPLATES = {
   dic: { label:"Evaluación de diciembre · 360 por equipos", kind:"360", desc:"Cada persona se autoevalúa; Deal Team y Operations evalúan al Deal Team; todo el mundo evalúa a Operations; el resto de Nest y Operations evalúan a Nest; los equity partners evalúan a todo el mundo y a ellos nadie. El lead reviewer (asignado por administración) valora y escribe el resumen final. La persona solo ve ese resumen y sus gráficos agregados, cuando el lead pulsa «Mostrar resultados».",
-         forms:{ self:"dic_self_lead", lead:"dic_self_lead", self_deal:"dic_self_deal", peer_deal:"dic_deal_peer", peer_operations:"dic_ops_peer", peer_nest:"dic_ops_peer", peer:"dic_ops_peer" },
+         forms:{ self:"dic_self_lead", lead:"dic_self_lead", self_deal:"dic_self_deal", peer_deal:"dic_self_deal", peer_operations:"dic_self_lead", peer_nest:"dic_self_lead", peer:"dic_self_lead" },   // un cuestionario por equipo para todo el mundo
          visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:false, peers_see_self:false } },
   jun: { label:"Mid Term Feedback · junio (cascada)", kind:"cascade", desc:"Cada persona se autoevalúa y elige a 2-3 compañeros; el lead reviewer lo asigna administración. Compañeros y lead responden sin ver la autoevaluación; el lead la lee, junto con las respuestas de los compañeros, cuando ha enviado la suya y va a escribir el resumen. La persona solo ve el resumen del lead cuando este pulsa «Mostrar resultados».",
          forms:{ self:"jun_self", lead:"jun_lead", peer:"jun_peer" },
