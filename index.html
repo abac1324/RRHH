@@ -787,7 +787,8 @@ PAGES.tasks = async function(){
   for(const a of all){ (byCycle[a.cycle_id] ||= []).push(a); }
   const cyclesSorted = CYCLES.filter(c => byCycle[c.id]);
   return `
-  <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hola, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div></div>
+  <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hola, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div>
+    <span style="flex:1"></span>${all.some(a => a.status === 'submitted') ? `<button class="btn sm" onclick="exportMyReviewsExcel()" title="Todas las reviews que has enviado, una hoja por ciclo"><i class="ti ti-file-spreadsheet"></i> Excel de mis reviews</button>` : ""}</div>
   <div class="grid g3" style="margin-bottom:18px">
     <div class="card kpi"><span class="v">${pending.length}</span><span class="l">Reviews pendientes</span><span class="d ${pending.length?'neg':''}">${pending.length ? "por completar" : "todo al día"}</span></div>
     <div class="card kpi"><span class="v">${open.filter(a=>a.status==="submitted").length}</span><span class="l">Reviews enviadas</span><span class="d">en los ciclos abiertos</span></div>
@@ -835,7 +836,7 @@ PAGES.form = async function(id){
     const peers = (others||[]).filter(x=>x.role==='peer'), lead = (others||[]).find(x=>x.role==='lead');
     const locked = peers.some(x => x.status !== 'pending') || cycle.status !== 'open';
     const popts = sel => PEOPLE.filter(p=>p.active && p.id!==ME.id).sort((x,y)=>x.last_name.localeCompare(y.last_name)).map(p=>`<option value="${p.id}" data-p="${p.id}" ${sel===p.id?"selected":""}>${esc(fullName(p))}</option>`).join("");
-    picksBlock = `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users-plus"></i> Quién te da feedback <span class="r">${peers.length?`<span class="pill ok">${peers.length} compañero${peers.length>1?'s':''} elegidos</span>`:`<span class="pill warn">pendiente de elegir</span>`}</span></h3>
+    picksBlock = `<div class="card nopdf" style="margin-bottom:16px"><h3><i class="ti ti-users-plus"></i> Quién te da feedback <span class="r">${peers.length?`<span class="pill ok">${peers.length} compañero${peers.length>1?'s':''} elegidos</span>`:`<span class="pill warn">pendiente de elegir</span>`}</span></h3>
       <p class="sm mut" style="margin:0 0 12px">Elige a <b>2 o 3 compañeros</b> con los que hayas trabajado este semestre. Te darán feedback sin ver tu autoevaluación. Tu lead reviewer lo asigna administración${lead ? `: <b>${esc(fullName(lead.reviewer))}</b>` : " (todavía sin asignar)"}; puede ser también uno de los compañeros que elijas.</p>
       <div class="two"><div><label class="xs mut">Compañero 1</label><select class="inp" id="pk1"><option value="">—</option>${popts(peers[0]&&peers[0].reviewer_id)}</select></div><div><label class="xs mut">Compañero 2</label><select class="inp" id="pk2"><option value="">—</option>${popts(peers[1]&&peers[1].reviewer_id)}</select></div>
         <div><label class="xs mut">Compañero 3 (opcional)</label><select class="inp" id="pk3"><option value="">—</option>${popts(peers[2]&&peers[2].reviewer_id)}</select></div></div>
@@ -845,7 +846,7 @@ PAGES.form = async function(id){
   const head = `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px">${av(a.reviewee,"lg")}
     <div style="flex:1"><div class="hd">${a.role==='self' ? "Mi autoevaluación" : esc(fullName(a.reviewee))}</div>
       <div class="mut sm">${esc(a.reviewee.position||"")} · ${TEAM_LABEL[a.reviewee.team]||""} · <span class="pill ${a.role==='self'?'':a.role==='lead'?'ok':'warn'}">${ROLE_LABEL[a.role]}</span> · ${esc(form.name)}</div></div>
-    <div style="text-align:right"><div class="pill ${a.status==='submitted'?'ok':a.status==='draft'?'warn':'gray'}">${STATUS_LABEL[a.status]}</div>${a.submitted_at?`<div class="xs mut" style="margin-top:4px">${fmtDT(a.submitted_at)}</div>`:""}</div></div>
+    <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">${mine && a.role==='self' && a.status==='submitted' ? `<button class="btn sm nopdf" onclick="downloadFormPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>` : ""}<div class="pill ${a.status==='submitted'?'ok':a.status==='draft'?'warn':'gray'}">${STATUS_LABEL[a.status]}</div>${a.submitted_at?`<div class="xs mut">${fmtDT(a.submitted_at)}</div>`:""}</div></div>
     ${form.intro ? `<div class="hint" style="margin-top:12px">${esc(form.intro)}</div>` : ""}
     ${!mine ? `<div class="alert info" style="margin-top:12px"><i class="ti ti-eye"></i> Estás viendo la evaluación escrita por <b>${esc(fullName(a.reviewer))}</b>.</div>` : ""}
     ${mine && a.status !== "submitted" && cycle.status !== "open" ? `<div class="alert warn" style="margin-top:12px"><i class="ti ti-lock"></i> <span style="flex:1">Este ciclo todavía no está abierto (${CYCLE_STATUS[cycle.status].toLowerCase()}). Podrás responder cuando administración lo abra.</span>${isAdmin()?`<button class="btn sm pri" onclick="openCycleNow('${cycle.id}','${a.id}')"><i class="ti ti-lock-open"></i> Abrir el ciclo ahora</button>`:""}</div>` : ""}
@@ -857,9 +858,10 @@ PAGES.form = async function(id){
   const foot = editable ? `<div class="card" style="position:sticky;bottom:0;display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 20px">
       <div style="flex:1;display:flex;align-items:center;gap:12px"><div class="bar" style="width:160px"><span id="fprog" style="width:0"></span></div><span class="sm mut" id="fprogTxt"></span><span class="xs mut" id="saveState">Borrador guardado automáticamente</span></div>
       <button class="btn" onclick="go('tasks')">Volver</button>
-      <button class="btn pri" onclick="submitCurrent()"><i class="ti ti-check"></i> Guardar respuesta final</button></div>`
+      <button class="btn" onclick="saveDraftNow()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
+      <button class="btn pri" onclick="submitCurrent()"><i class="ti ti-send"></i> Enviar respuesta</button></div>`
     : `<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" onclick="history.length>1?go('tasks'):go('tasks')">Volver</button></div>`;
-  return head + objBlock + picksBlock + body + foot;
+  return `<div id="formPrint">${head}${objBlock}${picksBlock}${body}</div>` + foot;
 };
 
 async function saveReviewerPicks(cycleId){
@@ -907,6 +909,14 @@ const SAVE_T = {};
 function queueSave(qid, text){ clearTimeout(SAVE_T[qid]); setState("Guardando…"); SAVE_T[qid] = setTimeout(()=>saveAnswer(qid, {value_text:text}), 700); }
 function setScale(qid, v, el){ [...el.parentNode.children].forEach(s=>s.classList.remove("on")); el.classList.add("on"); saveAnswer(qid, {value_num:v}); }
 function setState(t){ const s=document.getElementById("saveState"); if(s) s.textContent=t; }
+// «Guardar borrador» (Hugo, 08-sep-2026): guarda ahora lo pendiente del guardado automático; sigue editable hasta «Enviar respuesta»
+async function saveDraftNow(){
+  if(!CUR) return; const ps = [];
+  document.querySelectorAll("textarea[data-q]").forEach(t => { const qid = t.dataset.q; const prev = CUR.answers[qid] || {}; if((t.value||"") !== (prev.value_text||"")){ clearTimeout(SAVE_T[qid]); ps.push(saveAnswer(qid, { value_text: t.value })); } });
+  await Promise.all(ps);
+  setState("Borrador guardado " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" }));
+  toast("Borrador guardado. Puedes seguir editándolo cuando quieras");
+}
 function updateProgress(){ if(!CUR) return; const groups = questionsFor(CUR.form, CUR.a.role); let total=0, done=0; for(const g of groups) for(const q of g.questions){ total++; const a = CUR.answers[q.id]; if(a && (a.value_num!=null || (a.value_text||"").trim())) done++; } const b=document.getElementById("fprog"), t=document.getElementById("fprogTxt"); if(b) b.style.width = (total? done/total*100 : 0) + "%"; if(t) t.textContent = `${done} de ${total} respondidas`; }
 async function saveAnswer(qid, patch){
   try{
@@ -925,14 +935,14 @@ async function submitCurrent(){
   const missing = [];
   for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(isRequired(q) && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
   if(missing.length){ openModal(`<h2>Faltan respuestas obligatorias</h2><ul class="sm">${missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul><div style="text-align:right"><button class="btn pri" onclick="closeModal()">Volver al formulario</button></div>`); return; }
-  openModal(`<h2>¿Guardar la respuesta final?</h2><p class="sm">Una vez guardada como final no se puede modificar (si hubiera un error, administración puede reabrirla). ${CUR.a.role==='peer'?"Ningún otro compañero ni la persona evaluada verán tu respuesta; solo su lead reviewer.":CUR.a.role==='lead'?"Después podrás leer las respuestas de los compañeros y escribir el resumen final.":"Tu lead reviewer la leerá cuando escriba tu resumen final."}</p>
-    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-check"></i> Guardar respuesta final</button></div>`);
+  openModal(`<h2>¿Enviar la respuesta?</h2><p class="sm"><b>Una vez enviada no podrás volver a editarla.</b> Si hubiera un error, administración puede reabrirla. ${CUR.a.role==='peer'?"Ningún otro compañero ni la persona evaluada verán tu respuesta; solo su lead reviewer.":CUR.a.role==='lead'?"Después podrás leer las respuestas de los compañeros y escribir el resumen final.":"Tu lead reviewer la leerá cuando escriba tu resumen final."}</p>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-send"></i> Enviar respuesta</button></div>`);
 }
 async function doSubmit(){
   closeModal();
   const { error } = await sb.rpc("submit_assignment", { p_assignment: CUR.a.id });
   if(error){ err(error, "No se pudo enviar"); return; }
-  toast("Respuesta final guardada"); go("tasks");
+  toast("Respuesta enviada"); go("tasks");
 }
 
 /* ---------- MIS RESULTADOS (lo publicado sobre mí) ---------- */
@@ -1018,30 +1028,30 @@ function loadScript(url, ready){
   if(ready()) return Promise.resolve();
   return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = url; el.onload = () => ready() ? ok() : ko(new Error("Librería no disponible")); el.onerror = () => ko(new Error("No se pudo cargar " + url)); document.head.appendChild(el); });
 }
-async function downloadResultsPDF(){
-  const card = document.getElementById("resCard"); if(!card) return;
+// PDF A4 a partir de un elemento de la página (html2canvas + jsPDF, bajo demanda), descargado como archivo. prepare(wrap): retoques sobre la copia
+async function pdfFromElement(source, filename, prepare){
+  if(!source) return;
   toast("Generando el PDF…");
   try{
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js", () => !!window.html2canvas);
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => !!(window.jspdf && window.jspdf.jsPDF));
   }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
-  // Copia de la ficha con los gráficos convertidos en imagen
-  const clone = card.cloneNode(true);
-  clone.querySelectorAll("canvas").forEach((cv, i) => { const src = card.querySelectorAll("canvas")[i]; const img = document.createElement("img"); try{ img.src = src.toDataURL("image/png"); }catch(e){} img.style.cssText = "width:100%;height:auto;display:block"; cv.replaceWith(img); });
-  clone.querySelectorAll("button").forEach(b => b.remove());
-  clone.style.cssText = "box-shadow:none;border:1px solid #e3e7ee;margin:0";
+  // Copia del contenido con los gráficos convertidos en imagen y sin botones
+  const clone = source.cloneNode(true);
+  clone.querySelectorAll("canvas").forEach((cv, i) => { const src = source.querySelectorAll("canvas")[i]; const img = document.createElement("img"); try{ img.src = src.toDataURL("image/png"); }catch(e){} img.style.cssText = "width:100%;height:auto;display:block"; cv.replaceWith(img); });
+  clone.querySelectorAll(".btn, .nopdf, button").forEach(b => b.remove());
+  clone.style.margin = "0";
   // Página A4 con márgenes de 10 mm: 190 mm de ancho útil = 718 px CSS. El contenido se maqueta a ese ancho detrás de la app
+  // (fuera de pantalla el capturador lo deja en blanco; y el contenido va en flujo normal, porque posicionado lo mide con alto 0)
   const MM_W = 190, MM_H = 275, PX_W = 718, PX_PER_MM = PX_W / MM_W, PAGE_PX = Math.floor(MM_H * PX_PER_MM);
   const outer = document.createElement("div"); outer.style.cssText = `position:absolute;left:0;top:0;z-index:-1;width:${PX_W}px;background:#fff`;
   const wrap = document.createElement("div"); wrap.id = "pdfwrap";
   wrap.style.cssText = "width:100%;box-sizing:border-box;background:#fff;padding:4px 2px;font-family:Inter,Segoe UI,Arial,sans-serif;color:#1c2230";
   wrap.innerHTML = `<div class="pdfhead" style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-weight:800;font-size:15px;color:#0e2150">Abac RRHH · Evaluaciones de desempeño</div><div style="margin-left:auto;font-size:12px;color:#5c6675">${esc(fullName(ME))} · ${new Date().toLocaleDateString("es-ES")}</div></div>`;
   wrap.appendChild(clone); outer.appendChild(wrap); document.body.appendChild(outer);
-  wrap.querySelectorAll(".radar .box, .dist .d1 .box").forEach(b => b.style.height = "auto");
-  // Las barras por nota, de dos en dos: cada pareja es un bloque que no se parte entre páginas
-  wrap.querySelectorAll(".dist").forEach(d => { const items = [...d.children]; d.innerHTML = ""; for(let i = 0; i < items.length; i += 2){ const row = document.createElement("div"); row.className = "pdfrow"; row.appendChild(items[i]); if(items[i+1]) row.appendChild(items[i+1]); else { const ph = document.createElement("div"); ph.className = "d1 ph"; row.appendChild(ph); } d.appendChild(row); } });
+  if(prepare) prepare(wrap);
   const st = document.createElement("style");
-  st.textContent = "#pdfwrap .card{box-shadow:none;border:1px solid #e3e7ee;margin:0;padding:18px 20px} #pdfwrap .res-head{flex-wrap:wrap} #pdfwrap .dist{display:block} #pdfwrap .pdfrow{display:flex;gap:12px;margin-bottom:12px} #pdfwrap .pdfrow .d1{flex:1 1 0;min-width:0} #pdfwrap .pdfrow .d1.ph{border:0;background:transparent} #pdfwrap .radar .box,#pdfwrap .d1 .box{height:auto} #pdfwrap img{max-width:100%}";
+  st.textContent = "#pdfwrap .card{box-shadow:none;border:1px solid #e3e7ee;margin:0 0 12px;padding:18px 20px} #pdfwrap .res-head{flex-wrap:wrap} #pdfwrap .dist{display:block} #pdfwrap .pdfrow{display:flex;gap:12px;margin-bottom:12px} #pdfwrap .pdfrow .d1{flex:1 1 0;min-width:0} #pdfwrap .pdfrow .d1.ph{border:0;background:transparent} #pdfwrap .radar .box,#pdfwrap .d1 .box{height:auto} #pdfwrap img{max-width:100%} #pdfwrap .q{page-break-inside:avoid}";
   wrap.prepend(st);
   try{
     // esperar a que las imágenes de los gráficos estén decodificadas (si no, salen en blanco)
@@ -1051,7 +1061,7 @@ async function downloadResultsPDF(){
     const big = await html2canvas(wrap, { scale:SCALE, backgroundColor:"#ffffff", useCORS:true, logging:false });
     // Cortes de página: nunca dentro de un bloque protegido; el corte sube hasta el borde superior del bloque que quedaría partido
     const w0 = wrap.getBoundingClientRect(); const totalPx = w0.height;
-    const blocks = [...wrap.querySelectorAll(".pdfrow, .radars, .fr-read > div, .fr-read, .prev-obj, .res-head, .pdfhead, h3, h4, h5")].map(el => { const r = el.getBoundingClientRect(); return { top: r.top - w0.top, bottom: r.bottom - w0.top }; }).filter(b => b.bottom - b.top < PAGE_PX * 0.9);
+    const blocks = [...wrap.querySelectorAll(".pdfrow, .radars, .fr-read > div, .fr-read, .prev-obj, .res-head, .pdfhead, .q, .hd, h3, h4, h5")].map(el => { const r = el.getBoundingClientRect(); return { top: r.top - w0.top, bottom: r.bottom - w0.top }; }).filter(b => b.bottom - b.top < PAGE_PX * 0.9);
     const cuts = []; let y = 0;
     while(y + PAGE_PX < totalPx){ let cut = y + PAGE_PX; for(let k = 0; k < 6; k++){ const hit = blocks.find(b => b.top < cut - 2 && b.bottom > cut + 2); if(!hit) break; cut = hit.top - 6; } if(cut <= y + PAGE_PX * 0.35) cut = y + PAGE_PX; cuts.push(cut); y = cut; }
     cuts.push(totalPx);
@@ -1063,11 +1073,23 @@ async function downloadResultsPDF(){
       pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, MM_W, hPx / PX_PER_MM);
       pdf.setFontSize(8); pdf.setTextColor(140); pdf.text(`${idx + 1} / ${cuts.length}`, 200, 291, { align:"right" });
       from = to; });
-    const filename = `${fullName(ME)} - ${view_title()}.pdf`.replace(/[\\/:*?"<>|]/g, "-");
-    const blob = pdf.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
+    const blob = pdf.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
     toast(`PDF descargado (${cuts.length} página${cuts.length > 1 ? "s" : ""})`);
   }catch(e){ err(e, "PDF"); }
   finally{ outer.remove(); }
+}
+// Mis resultados / ficha: la ficha entera, con las barras por nota de dos en dos (cada pareja, un bloque que no se parte)
+async function downloadResultsPDF(){
+  const card = document.getElementById("resCard"); if(!card) return;
+  await pdfFromElement(card, `${fullName(ME)} - ${view_title()}.pdf`, wrap => {
+    wrap.querySelectorAll(".radar .box, .dist .d1 .box").forEach(b => b.style.height = "auto");
+    wrap.querySelectorAll(".dist").forEach(d => { const items = [...d.children]; d.innerHTML = ""; for(let i = 0; i < items.length; i += 2){ const row = document.createElement("div"); row.className = "pdfrow"; row.appendChild(items[i]); if(items[i+1]) row.appendChild(items[i+1]); else { const ph = document.createElement("div"); ph.className = "d1 ph"; row.appendChild(ph); } d.appendChild(row); } });
+  });
+}
+// Mi autoevaluación enviada, tal como se ve (Hugo, 08-sep-2026: cada uno se la guarda donde quiera)
+async function downloadFormPDF(){
+  const el = document.getElementById("formPrint"); if(!el || !CUR) return;
+  await pdfFromElement(el, `${fullName(ME)} - ${CUR.cycle.name} - Mi autoevaluación.pdf`);
 }
 function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
 // Araña con tres líneas y pop-up de las tres notas al pasar por un eje
@@ -1167,7 +1189,7 @@ PAGES.team = async function(){
   let html = "";
   for(const cid of Object.keys(byCycle)){
     const c = byId(CYCLES, cid); const { data:prog } = await sb.rpc("cycle_progress", { p_cycle: cid });
-    html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}')"><i class="ti ti-file-spreadsheet"></i> Excel de mis evaluados</button></span></h3>
+    html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}', null, {summary:false})"><i class="ti ti-file-spreadsheet"></i> Excel de mis evaluados</button></span></h3>
       <table><tr><th>Persona</th><th>Autoevaluación</th><th>Compañeros</th><th>Mi valoración</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
       ${byCycle[cid].map(a => { const p = (prog||[]).filter(x => x.reviewee_id === a.reviewee_id); const g = r => p.find(x=>x.role===r) || {total:0,submitted:0}; const fr = (frs||[]).find(f => f.cycle_id===cid && f.reviewee_id===a.reviewee_id); const ready = g('self').submitted && g('peer').submitted>=g('peer').total && a.status==='submitted';
         return `<tr><td class="row">${av(a.reviewee,"sm")} ${esc(fullName(a.reviewee))}</td><td>${g('self').submitted?'<span class="y">enviada</span>':'<span class="mut">pendiente</span>'}</td><td>${g('peer').submitted} / ${g('peer').total}</td><td>${a.status==='submitted'?'<span class="y">enviada</span>':a.status==='draft'?'<span class="p">borrador</span>':'<span class="mut">pendiente</span>'}</td>
@@ -1227,7 +1249,69 @@ function reviewWeight(reviewee, reviewer, role){
   const rp = person(reviewer.id) || reviewer;
   return 1 + (reviewee.team && reviewee.team === reviewer.team ? 1 : 0) + ((rp.is_partner || role === 'lead') ? 1 : 0);
 }
-async function buildCycleWorkbook(cycleId, revieweeId){
+// Estilos y ayudas comunes de los Excel (ExcelJS)
+const XL = (() => {
+  const NAVY = "FF0E2150", SOFT = "FFF2F5FA", MID = "FFE1F3F5", LINE = "FFD9DEE7", GREY = "FF5C6675";
+  const thin = { style:"thin", color:{ argb:LINE } }; const box = { top:thin, left:thin, bottom:thin, right:thin };
+  const headRow = (ws, r, vals, leftCols) => { const L = leftCols == null ? 3 : leftCols; const row = ws.getRow(r); vals.forEach((v, i) => { const cell = row.getCell(i+1); cell.value = v; cell.font = { bold:true, color:{ argb:"FFFFFFFF" }, size:10 }; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:NAVY } }; cell.alignment = { vertical:"middle", horizontal: i < L ? "left" : "center", wrapText:true }; cell.border = box; }); row.height = 34; return row; };
+  const title = (ws, r, text, size) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { bold:true, size: size || 14, color:{ argb:NAVY } }; };
+  const sub = (ws, r, text) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { size:10, color:{ argb:GREY } }; };
+  const num = (cell, v, dec) => { if(v == null || Number.isNaN(v)) { cell.value = "—"; cell.alignment = { horizontal:"center" }; return; } cell.value = dec ? Math.round(v * 10) / 10 : v; cell.numFmt = dec ? "0.0" : "0"; cell.alignment = { horizontal:"center" }; };
+  return { NAVY, SOFT, MID, LINE, GREY, box, headRow, title, sub, num };
+})();
+// Nombres de hoja válidos (31 caracteres, sin []:*?/\) y sin repetir
+function sheetNamer(){ const used = new Set(); return raw => { let n = String(raw).replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(used.has(k)) k = n.slice(0, 28) + " " + (i++); used.add(k); return k; }; }
+// Excel de todas las reviews que YO he enviado (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden
+async function buildMyReviewsWorkbook(){
+  const all = (await myAssignments()).filter(a => a.status === 'submitted');
+  if(!all.length) return null;
+  const { data:ans } = await sb.from("answers").select("*").in("assignment_id", all.map(a => a.id));
+  const qById = {}; for(const f of FORMS) for(const sec of f.form_sections) for(const qq of sec.questions) qById[qq.id] = qq;
+  await loadExcelJS();
+  const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
+  const { SOFT, GREY, box, headRow, title, sub, num } = XL; const sheetName = sheetNamer();
+  const order = { self:0, lead:1, peer:2 };
+  const cycles = CYCLES.filter(c => all.some(a => a.cycle_id === c.id));
+  for(const c of cycles){
+    const list = all.filter(a => a.cycle_id === c.id).sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewee).localeCompare(fullName(y.reviewee)));
+    const allQ = []; const seen = new Set();
+    for(const cf of (c.cycle_forms||[])){ const f = byId(FORMS, cf.form_id); if(!f) continue; for(const sec of f.form_sections) for(const qq of sec.questions){ if(seen.has(qq.code)) continue; seen.add(qq.code); allQ.push(qq); } }
+    const ws = wb.addWorksheet(sheetName(c.period_label || c.name), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
+    title(ws, 1, c.name, 16); sub(ws, 2, `Mis reviews enviadas · ${fullName(ME)} · exportado el ${fmtD(new Date())}`);
+    const FIRST = 5, TXT_W = 46, SC_W = 13;
+    const head = ["Persona evaluada", "Equipo", "Tipo de review", "Enviada"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
+    headRow(ws, 4, head, 4); ws.getRow(4).height = 48; let r = 5;
+    for(const a of list){
+      const by = {}; for(const an of (ans||[]).filter(x => x.assignment_id === a.id)){ const qq = qById[an.question_id]; if(qq) by[qq.code] = an.value_num != null ? an.value_num : (an.value_text || ""); }
+      const row = ws.getRow(r);
+      row.getCell(1).value = a.role === 'self' ? `${fullName(a.reviewee)} (yo)` : fullName(a.reviewee); row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
+      row.getCell(2).value = TEAM_LABEL[a.reviewee.team] || ""; row.getCell(2).alignment = { vertical:"top" };
+      row.getCell(3).value = ROLE_LABEL[a.role]; row.getCell(3).font = { size:9, color:{ argb:GREY } }; row.getCell(3).alignment = { vertical:"top" };
+      row.getCell(4).value = a.submitted_at ? fmtD(a.submitted_at) : ""; row.getCell(4).alignment = { vertical:"top", horizontal:"center" };
+      let lines = 1;
+      allQ.forEach((qq, j) => { const v = by[qq.code]; const cell = row.getCell(FIRST + j); const ok = v != null && String(v).trim() !== "";
+        if(qq.kind === 'scale'){ num(cell, ok ? Number(v) : null, false); cell.alignment = { horizontal:"center", vertical:"top" }; }
+        else { cell.value = ok ? String(v) : ""; cell.alignment = { wrapText:true, vertical:"top" }; if(ok) lines = Math.max(lines, Math.ceil(String(v).length / (TXT_W * 1.05)) + String(v).split("\n").length - 1); } });
+      row.height = Math.min(300, Math.max(18, lines * 15 + 4));
+      for(let x = 1; x <= head.length; x++){ row.getCell(x).border = box; if(a.role === 'self') row.getCell(x).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; }
+      r++;
+    }
+    ws.getColumn(1).width = 28; ws.getColumn(2).width = 13; ws.getColumn(3).width = 15; ws.getColumn(4).width = 11;
+    allQ.forEach((qq, j) => ws.getColumn(FIRST + j).width = qq.kind === 'scale' ? SC_W : TXT_W);
+  }
+  return { wb, filename: `Mis reviews - ${fullName(ME)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"), n: all.length };
+}
+async function exportMyReviewsExcel(){
+  toast("Preparando el Excel…");
+  let built; try{ built = await buildMyReviewsWorkbook(); }catch(e){ return err(e, "Excel"); }
+  if(!built) return toast("Todavía no has enviado ninguna review");
+  const buf = await built.wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = built.filename; el.click(); URL.revokeObjectURL(u);
+  toast(`Excel: ${built.n} review${built.n > 1 ? 's' : ''}`);
+}
+// opts.summary === false: sin hoja Resumen (el Excel del lead, Hugo 08-sep-2026: solo una hoja por persona)
+async function buildCycleWorkbook(cycleId, revieweeId, opts){
+  opts = opts || {};
   const c = byId(CYCLES, cycleId);
   let q = sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", cycleId).eq("status", "submitted"); if(revieweeId) q = q.eq("reviewee_id", revieweeId);
   const { data:as, error } = await q; if(error) throw error;
@@ -1244,13 +1328,7 @@ async function buildCycleWorkbook(cycleId, revieweeId){
 
   await loadExcelJS();
   const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
-  const NAVY = "FF0E2150", SOFT = "FFF2F5FA", MID = "FFE1F3F5", LINE = "FFD9DEE7", GREY = "FF5C6675";
-  const thin = { style:"thin", color:{ argb:LINE } }; const box = { top:thin, left:thin, bottom:thin, right:thin };
-  const headRow = (ws, r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const cell = row.getCell(i+1); cell.value = v; cell.font = { bold:true, color:{ argb:"FFFFFFFF" }, size:10 }; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:NAVY } }; cell.alignment = { vertical:"middle", horizontal: i < 3 ? "left" : "center", wrapText:true }; cell.border = box; }); row.height = 34; return row; };
-  const title = (ws, r, text, size=14) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { bold:true, size, color:{ argb:NAVY } }; };
-  const sub = (ws, r, text) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { size:10, color:{ argb:GREY } }; };
-  const num = (cell, v, dec) => { if(v == null || Number.isNaN(v)) { cell.value = "—"; cell.alignment = { horizontal:"center" }; return; } cell.value = dec ? Math.round(v * 10) / 10 : v; cell.numFmt = dec ? "0.0" : "0"; cell.alignment = { horizontal:"center" }; };
-  const usedNames = new Set(); const sheetName = p => { let n = `${p.last_name}, ${p.first_name}`.replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(usedNames.has(k)) k = n.slice(0, 28) + " " + (i++); usedNames.add(k); return k; };
+  const { NAVY, SOFT, MID, LINE, GREY, box, headRow, title, sub, num } = XL; const sheetName = sheetNamer();
 
   // ---------- Resumen ----------
   const people = Object.values(byReviewee).map(list => list[0].reviewee).sort((a,b) => (TEAM_LABEL[a.team]||"").localeCompare(TEAM_LABEL[b.team]||"") || a.last_name.localeCompare(b.last_name));
@@ -1262,7 +1340,7 @@ async function buildCycleWorkbook(cycleId, revieweeId){
       const w = reviewWeight(p, a.reviewer, a.role); o.sum += Number(v); o.n++; o.wsum += Number(v) * w; o.w += w; allWs += Number(v) * w; allW += w; allS += Number(v); allN++; reviewers.add(a.reviewer_id); } }
     stats[p.id] = { n:reviewers.size, per, W: allW ? allWs/allW : null, A: allN ? allS/allN : null, S: selfN ? selfS/selfN : null };
   }
-  if(scaleQ.length && (!revieweeId || people.length > 1)){
+  if(opts.summary !== false && scaleQ.length && (!revieweeId || people.length > 1)){
     const ws = wb.addWorksheet("Resumen", { views:[{ state:"frozen", xSplit:2, ySplit:5 }] });
     title(ws, 1, c.name, 16); sub(ws, 2, `${c.period_label || ""}${c.period_label ? " · " : ""}Exportado el ${fmtD(new Date())} por ${fullName(ME)} · medias por competencia (ponderadas) y globales · sin la autoevaluación en las medias`);
     ws.getRow(3).height = 6;
@@ -1281,7 +1359,7 @@ async function buildCycleWorkbook(cycleId, revieweeId){
     const list = byReviewee[p.id].slice().sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewer).localeCompare(fullName(y.reviewer)));
     const opinions = list.filter(a => a.role !== 'self'), selfA = list.find(a => a.role === 'self');
     const lead = list.find(a => a.role === 'lead'); const st = stats[p.id];
-    const ws = wb.addWorksheet(sheetName(p), { views:[{ state:"frozen", xSplit:1, ySplit:6 }] });
+    const ws = wb.addWorksheet(sheetName(`${p.last_name}, ${p.first_name}`), { views:[{ state:"frozen", xSplit:1, ySplit:6 }] });
     title(ws, 1, fullName(p), 16); sub(ws, 2, [TEAM_LABEL[p.team], p.position].filter(Boolean).join(" · "));
     sub(ws, 3, `${c.name}${c.period_label ? " · " + c.period_label : ""} · Lead reviewer: ${lead ? fullName(lead.reviewer) : "—"} · ${opinions.length} ${opinions.length === 1 ? "opinión" : "opiniones"}`);
     let r = 6;
@@ -1320,9 +1398,9 @@ async function buildCycleWorkbook(cycleId, revieweeId){
   const filename = `${c.name}${revieweeId ? " - " + fullName(person(revieweeId) || people[0]) : ""}.xlsx`.replace(/[\\/:*?"<>|]/g, "-");
   return { wb, filename, people: people.length, answers: as.length };
 }
-async function exportCycleExcel(cycleId, revieweeId){
+async function exportCycleExcel(cycleId, revieweeId, opts){
   toast("Preparando el Excel…");
-  let built; try{ built = await buildCycleWorkbook(cycleId, revieweeId); }catch(e){ return err(e, "Excel"); }
+  let built; try{ built = await buildCycleWorkbook(cycleId, revieweeId, opts); }catch(e){ return err(e, "Excel"); }
   if(!built) return toast("No hay respuestas enviadas que exportar");
   const buf = await built.wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = built.filename; el.click(); URL.revokeObjectURL(u);
@@ -1537,7 +1615,7 @@ const ADMIN = {
     return guide + `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editCycle(null)"><i class="ti ti-plus"></i> Nuevo ciclo</button></div>
     ${CYCLES.length ? `<div class="card"><table><tr><th>Ciclo</th><th>Tipo</th><th>Fechas</th><th>Estado</th><th>Avance</th><th>Qué ve la persona evaluada</th><th></th></tr>
       ${CYCLES.map(c => { const v = c.visibility||{}; return `<tr><td class="b">${esc(c.name)}<div class="xs mut">${esc(c.period_label||"")}</div></td><td><span class="pill pur">${c.kind==='cascade'?'Cascada (junio)':'360 (diciembre)'}</span></td><td class="xs">${fmtD(c.opens_at)} → ${fmtD(c.closes_at)}</td>
-        <td><select class="inp" style="width:auto;padding:4px 6px;font-size:12px" onchange="setCycleStatus('${c.id}',this.value)">${Object.entries(CYCLE_STATUS).map(([k,l])=>`<option value="${k}" ${c.status===k?"selected":""}>${l}</option>`).join("")}</select></td>
+        <td><select class="inp" style="width:auto;padding:4px 6px;font-size:12px" onchange="setCycleStatus('${c.id}',this.value)">${Object.entries(CYCLE_STATUS).filter(([k]) => k !== 'published' || c.status === 'published').map(([k,l])=>`<option value="${k}" ${c.status===k?"selected":""}>${l}</option>`).join("")}</select></td>
         <td><span class="flow" title="Creado · Asignado · Abierto · Cerrado"><i class="on"></i><i class="${(c.cycle_forms||[]).length?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${['closed','published'].includes(c.status)?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">sin formularios</div>'}</td>
         <td class="xs">El resumen final de su lead reviewer${c.kind==='360'?" y sus gráficos (medias, sin nombres)":""}, cuando el lead pulsa «Mostrar resultados»</td>
         <td style="text-align:right;white-space:nowrap"><button class="btn sm" onclick="editCycle('${c.id}')">Editar</button> <button class="btn sm" onclick="ADM.tab='assign';ADM.cycle='${c.id}';render()">Asignaciones</button></td></tr>`; }).join("")}</table></div>`
@@ -1936,8 +2014,10 @@ async function exportAssign(cycleId){
 }
 
 /* ----- Personas ----- */
-function editPerson(id){
-  const p = id ? PEOPLE.find(x=>x.id===id) || {} : { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true };
+async function editPerson(id){
+  // La ficha se lee de la base de datos: PEOPLE solo tiene a las personas activas y una desactivada salía en blanco (Hugo, 08-sep-2026)
+  let p = { first_name:"", last_name:"", email:"", position:"", team:"", start_date:"", is_partner:false, is_admin:false, active:true, sees_all:false, is_evaluated:true };
+  if(id){ const { data, error } = await sb.from("people").select("*").eq("id", id).limit(1); if(error) return err(error, "Personas"); if(data && data[0]) p = data[0]; }
   openModal(`<h2>${id?"Editar persona":"Nueva persona"}</h2>
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Nombre</label><input type="text" id="p_fn" value="${esc(p.first_name||"")}"></div><div><label class="xs mut">Apellidos</label><input type="text" id="p_ln" value="${esc(p.last_name||"")}"></div>
     <div><label class="xs mut">Correo (login Microsoft)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Puesto</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
@@ -1947,7 +2027,18 @@ function editPerson(id){
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Se le evalúa <span class="xs mut">(entra como persona evaluada en los ciclos)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin <span class="xs mut">(ciclos, asignaciones y personas)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_active" ${p.active!==false?"checked":""}><label>Activa (puede entrar y recibe asignaciones)</label></div>
-   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="savePerson(${id?`'${id}'`:"null"})">Guardar</button></div>`);
+   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px">${id ? `<button class="btn" style="margin-right:auto;color:#b42318" onclick="deletePerson('${id}')"><i class="ti ti-trash"></i> Eliminar</button>` : ""}<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="savePerson(${id?`'${id}'`:"null"})">Guardar</button></div>`);
+}
+// Eliminar de la lista (Hugo, 08-sep-2026). Si la persona tiene reviews o asignaciones, la base de datos lo impide: queda desactivada
+async function deletePerson(id){
+  const { data } = await sb.from("people").select("first_name,last_name").eq("id", id).limit(1); const p = data && data[0]; if(!p) return;
+  openModal(`<h2>¿Eliminar a ${esc(fullName(p))}?</h2><p class="sm">Desaparece de la lista de personas. Solo es posible si no tiene reviews ni asignaciones en ningún ciclo; si las tiene, la base de datos lo impide y lo correcto es dejarla desactivada.</p>
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="editPerson('${id}')">Cancelar</button><button class="btn pri" style="background:#b42318;border-color:#b42318" onclick="doDeletePerson('${id}')"><i class="ti ti-trash"></i> Eliminar</button></div>`);
+}
+async function doDeletePerson(id){
+  const { error } = await sb.from("people").delete().eq("id", id);
+  if(error){ closeModal(); if(String(error.code) === "23503" || /foreign key|violates/i.test(error.message||"")) return toast("No se puede eliminar: tiene reviews o asignaciones. Déjala desactivada.", true); return err(error, "No se pudo eliminar"); }
+  closeModal(); toast("Persona eliminada"); await loadCatalog(); render();
 }
 async function savePerson(id){
   const g = x => document.getElementById(x);
