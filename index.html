@@ -1655,7 +1655,7 @@ const ADMIN = {
       <select class="inp" style="width:auto" onchange="ADM.cycle=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
       <span class="sm mut">${as.length} asignaciones · ${Object.keys(byRev).length} personas · ${sent} enviadas</span><span style="flex:1"></span>
       <button class="btn pri" onclick="prefill360('${c.id}')" title="Crea autoevaluaciones y compañeros. El lead reviewer queda vacío: se pone a mano con el archivo del CEO."><i class="ti ti-wand"></i> Rellenar con la regla de diciembre</button>
-      <button class="btn" onclick="moreActions(this,'${c.id}')"><i class="ti ti-dots"></i></button></div>
+      <button class="btn" onclick="event.stopPropagation();moreActions(this,'${c.id}')"><i class="ti ti-dots"></i></button></div>
     ${!hasForm('self')||!hasForm('peer')||!hasForm('lead') ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> A este ciclo le falta el cuestionario de ${['self','lead','peer'].filter(r=>!hasForm(r)).map(r=>ROLE_LABEL[r]).join(", ")}. Edítalo en «Ciclos» antes de asignar.</div>` : ""}
     <div class="card" style="padding-top:8px"><table><tr><th style="width:26%">Persona</th><th style="width:16%">Autoevaluación</th><th style="width:24%">Lead reviewer</th><th>Compañeros que la evalúan</th></tr>${rows}</table>
     ${!people.length?`<div class="emptystate">No hay personas activas.</div>`:""}</div>`;
@@ -1937,6 +1937,9 @@ async function applyBulkLeads(cycleId){
 }
 // Menú de acciones secundarias
 function moreActions(btn, cycleId){
+  // el clic que abre el menú no debe llegar al cierre global (document click), si no se abre y se cierra al instante
+  if(window.event && window.event.stopPropagation) window.event.stopPropagation();
+  if(SELMENU && SELMENU.classList.contains("actmenu")){ closeSelMenu(); return; }
   closeSelMenu();
   const m = document.createElement("div"); m.className = "selmenu actmenu";
   m.innerHTML = `<div class="sm-list">
