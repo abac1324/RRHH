@@ -1390,7 +1390,7 @@ function personInfo(id){
 PAGES.audit = async function(){
   const { data, error } = await sb.from("audit_log").select("*").order("at", {ascending:false}).limit(300);
   if(error) throw error;
-  const ACTION = { submit:"Envió una evaluación", resubmit:"Volvió a enviar una evaluación corregida", read_results:"Leyó sus resultados", read_results_of:"Leyó los resultados de otra persona", send_final_review:"Envió el resumen final", show_results:"Mostró los resultados a la persona", reopen_assignment:"Reabrió una respuesta enviada", choose_reviewers:"Eligió a sus compañeros", release:"Publicó", import:"Importó" };
+  const ACTION = { mail_test:"Se envió un correo de prueba", mail_settings:"Cambió los ajustes de correo", submit:"Envió una evaluación", resubmit:"Volvió a enviar una evaluación corregida", read_results:"Leyó sus resultados", read_results_of:"Leyó los resultados de otra persona", send_final_review:"Envió el resumen final", show_results:"Mostró los resultados a la persona", reopen_assignment:"Reabrió una respuesta enviada", choose_reviewers:"Eligió a sus compañeros", release:"Publicó", import:"Importó" };
   return `<div class="card"><h3><i class="ti ti-shield-lock"></i> Registro <span class="r">${data.length} entradas (últimas 300)</span></h3>
     <table><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Sobre quién</th><th>Ciclo</th></tr>
     ${data.map(a => `<tr><td class="xs mut">${fmtDT(a.at)}</td><td class="sm">${esc(a.actor_email||"")}</td><td class="sm">${ACTION[a.action]||esc(a.action)} ${a.details&&a.details.role?`<span class="tag">${ROLE_LABEL[a.details.role]||a.details.role}</span>`:""}</td><td class="sm">${a.person_id?esc(fullName(person(a.person_id))):"—"}</td><td class="xs mut">${a.cycle_id?esc((byId(CYCLES,a.cycle_id)||{}).name||""):""}</td></tr>`).join("")}</table>
@@ -1477,9 +1477,51 @@ const ADMIN = {
       <p class="sm">Mientras esté <b>activado</b>, la versión de construcción de la app permite entrar como cualquier persona sin contraseña. <b>Debe estar desactivado siempre que haya respuestas reales; ábrelo solo para una prueba puntual y vuelve a cerrarlo.</b></p>
       <div class="row"><span class="pill ${SETTINGS.dev_mode?'warn':'ok'}">${SETTINGS.dev_mode?'ACTIVADO':'desactivado'}</span><button class="btn sm" onclick="toggleDev(${!SETTINGS.dev_mode})">${SETTINGS.dev_mode?'Desactivar':'Activar'}</button></div>
       <div class="hint">${esc(SETTINGS.note||"")}</div></div>
-    <div class="card"><h3>Formularios cargados</h3><table><tr><th>Código</th><th>Nombre</th><th class="num">Secciones</th><th class="num">Preguntas</th></tr>${FORMS.map(f=>`<tr><td class="b">${esc(f.code)}</td><td class="sm">${esc(f.name)}</td><td class="num">${f.form_sections.length}</td><td class="num">${f.form_sections.reduce((a,s)=>a+s.questions.length,0)}</td></tr>`).join("")}</table><div class="hint">Los formularios se cargan con los SQL de «3 - Base de datos». Aquí solo se consultan.</div></div></div>`;
+    <div class="card"><h3>Formularios cargados</h3><table><tr><th>Código</th><th>Nombre</th><th class="num">Secciones</th><th class="num">Preguntas</th></tr>${FORMS.map(f=>`<tr><td class="b">${esc(f.code)}</td><td class="sm">${esc(f.name)}</td><td class="num">${f.form_sections.length}</td><td class="num">${f.form_sections.reduce((a,s)=>a+s.questions.length,0)}</td></tr>`).join("")}</table><div class="hint">Los formularios se cargan con los SQL de «3 - Base de datos». Aquí solo se consultan.</div></div>
+    ${await mailCard()}</div>`;
   },
 };
+
+/* ----- Correos de aviso (SQL 11 + Edge Function enviar-correos) ----- */
+const MAIL_KIND = { cycle_open:"Hoy empieza", reminder:"Recordatorio", closes_today:"Hoy cierra", cycle_closed:"Ha cerrado", results_ready:"Resultados publicados", test:"Prueba" };
+async function mailCard(){
+  const { data:q, error } = await sb.rpc("mail_queue_list", { p_limit:30 });
+  if(error) return `<div class="card" style="grid-column:1/-1"><h3><i class="ti ti-mail"></i> Correos de aviso</h3><div class="alert warn"><i class="ti ti-alert-triangle"></i> Falta ejecutar <b>11_correos.sql</b> en la base de datos (${esc(error.message)}).</div></div>`;
+  const on = !!SETTINGS.mail_enabled, days = (SETTINGS.mail_reminder_days || [7,3,1]).join(", ");
+  const pend = (q||[]).filter(x => !x.sent_at && x.attempts < 5).length;
+  return `<div class="card" style="grid-column:1/-1"><h3><i class="ti ti-mail"></i> Correos de aviso <span class="r">${on ? '<span class="pill ok">activados</span>' : '<span class="pill gray">desactivados</span>'}</span></h3>
+    <p class="sm">Cada persona recibe un correo cuando <b>empieza</b> un ciclo, cuando <b>quedan pocos días</b>, el <b>día del cierre</b>, cuando el ciclo <b>ha cerrado</b> y cuando su lead reviewer <b>publica sus resultados</b>. Los envía el buzón de abajo con Microsoft 365; dentro de la app no se muestra ningún aviso.</p>
+    <div class="two"><div><label class="xs mut" style="display:block;margin-bottom:4px">Buzón remitente</label><input class="inp" id="ml_from" placeholder="rrhh@abaccapital.com" value="${esc(SETTINGS.mail_from||"")}"></div>
+      <div><label class="xs mut" style="display:block;margin-bottom:4px">Recordatorios: días antes del cierre</label><input class="inp" id="ml_days" value="${esc(days)}" placeholder="7, 3, 1"></div></div>
+    <div class="chk" style="margin-top:10px"><input type="checkbox" id="ml_on" ${on?"checked":""}><label>Enviar correos <span class="xs mut">(desactivado, los avisos se encolan pero no salen)</span></label></div>
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn pri" onclick="mailSave()"><i class="ti ti-check"></i> Guardar</button><button class="btn" onclick="mailTest()"><i class="ti ti-send"></i> Enviarme un correo de prueba</button><button class="btn" onclick="mailRunDaily()"><i class="ti ti-calendar-check"></i> Comprobar recordatorios de hoy</button><button class="btn" onclick="mailSendNow()"><i class="ti ti-mailbox"></i> Enviar pendientes ahora${pend?` (${pend})`:""}</button></div>
+    <h3 style="margin-top:18px">Últimos correos</h3>
+    ${(q||[]).length ? `<table><tr><th>Cuándo</th><th>Tipo</th><th>Ciclo</th><th>Para</th><th>Asunto</th><th>Estado</th></tr>${q.map(x=>`<tr><td class="xs">${fmtDT(x.created_at)}</td><td><span class="pill ${x.kind==='test'?'gray':'pur'}">${MAIL_KIND[x.kind]||esc(x.kind)}</span></td><td class="xs">${esc(x.cycle_name||"—")}</td><td class="xs">${esc(x.to_email)}</td><td class="sm">${esc(x.subject)}</td><td>${x.sent_at?`<span class="pill ok">enviado ${fmtDT(x.sent_at)}</span>`:x.attempts>=5?`<span class="pill warn" title="${esc(x.last_error||"")}">fallido</span>`:x.last_error?`<span class="pill warn" title="${esc(x.last_error)}">reintentando (${x.attempts})</span>`:'<span class="pill gray">pendiente</span>'}</td></tr>`).join("")}</table>` : `<div class="emptystate">Todavía no se ha encolado ningún correo.</div>`}
+    <div class="hint">Los correos se envían solos al encolarse (webhook de la base de datos) y los recordatorios se calculan cada día laborable a las 08:30. «Enviar pendientes ahora» fuerza el envío de lo que quede; «Comprobar recordatorios de hoy» hace a mano lo que hace el proceso diario.</div></div>`;
+}
+async function mailSave(){
+  const g = x => document.getElementById(x);
+  const days = g("ml_days").value.split(/[\s,;]+/).map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const { error } = await sb.rpc("mail_settings_save", { p_enabled:g("ml_on").checked, p_from:g("ml_from").value.trim(), p_days:days.length?days:[7,3,1] });
+  if(error) return err(error, "Correos"); toast("Ajustes de correo guardados"); await loadCatalog(); render();
+}
+async function mailTest(){
+  const { error } = await sb.rpc("mail_test"); if(error) return err(error, "Correo de prueba");
+  toast("Correo de prueba encolado"); await mailSendNow(true);
+}
+async function mailRunDaily(){
+  const { data, error } = await sb.rpc("mail_run_daily"); if(error) return err(error, "Recordatorios");
+  toast(data ? `${data} aviso${data>1?'s':''} encolado${data>1?'s':''}` : "Hoy no toca ningún recordatorio"); if(data) await mailSendNow(true); else render();
+}
+async function mailSendNow(quiet){
+  let r; try{ r = await sb.functions.invoke("enviar-correos", { body:{} }); }catch(e){ r = { error:e }; }
+  if(r.error){ const m = r.error.message || String(r.error); if(!quiet || true) toast("No se pudo llamar a la función de envío: " + m, true); render(); return; }
+  const d = r.data || {};
+  if(d.error) toast("Envío: " + d.error, true);
+  else if(d.skipped) toast("No se envía: " + d.skipped, true);
+  else toast(d.sent ? `${d.sent} correo${d.sent>1?'s':''} enviado${d.sent>1?'s':''}${d.failed?` · ${d.failed} con error`:""}` : "No había nada pendiente");
+  render();
+}
 
 /* ----- Ciclo: crear / editar ----- */
 const CYCLE_TEMPLATES = {
