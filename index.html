@@ -1161,27 +1161,129 @@ PAGES.review = async function(arg){
 };
 AFTER.review = async function(){ drawResults(window.RES_VIEW); };
 /* ---------- Excel (CSV) con todas las respuestas de un ciclo: una fila por respuesta, una columna por pregunta ---------- */
-async function exportCycleExcel(cycleId, revieweeId){
+// ExcelJS se carga solo cuando hace falta (cdnjs)
+function loadExcelJS(){
+  if(window.ExcelJS) return Promise.resolve();
+  return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"; el.onload = ok; el.onerror = () => ko(new Error("No se pudo cargar ExcelJS")); document.head.appendChild(el); });
+}
+// Peso de cada opinión, igual que review_weight() en la base de datos: 1, +1 mismo equipo, +1 socio o lead reviewer
+function reviewWeight(reviewee, reviewer, role){
+  const rp = person(reviewer.id) || reviewer;
+  return 1 + (reviewee.team && reviewee.team === reviewer.team ? 1 : 0) + ((rp.is_partner || role === 'lead') ? 1 : 0);
+}
+async function buildCycleWorkbook(cycleId, revieweeId){
   const c = byId(CYCLES, cycleId);
   let q = sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", cycleId).eq("status", "submitted"); if(revieweeId) q = q.eq("reviewee_id", revieweeId);
-  const { data:as, error } = await q; if(error) return err(error, "Excel");
-  if(!as || !as.length) return toast("No hay respuestas enviadas que exportar");
+  const { data:as, error } = await q; if(error) throw error;
+  if(!as || !as.length) return null;
   const { data:ans } = await sb.from("answers").select("*").in("assignment_id", as.map(a=>a.id));
-  // columnas: todas las preguntas de los formularios del ciclo, en orden, sin repetir código
-  const cols = []; const seen = new Set();
-  for(const cf of (c.cycle_forms||[])){ const f = byId(FORMS, cf.form_id); if(!f) continue; for(const sec of f.form_sections) for(const qq of sec.questions){ if(!seen.has(qq.code)){ seen.add(qq.code); cols.push({ code:qq.code, text:qq.text }); } } }
+  let frq = sb.from("final_reviews").select("*").eq("cycle_id", cycleId); if(revieweeId) frq = frq.eq("reviewee_id", revieweeId);
+  const { data:frs } = await frq;
+  // preguntas del ciclo, en orden y sin repetir código
+  const scaleQ = [], textQ = [], allQ = []; const seen = new Set();
+  for(const cf of (c.cycle_forms||[])){ const f = byId(FORMS, cf.form_id); if(!f) continue; for(const sec of f.form_sections) for(const qq of sec.questions){ if(seen.has(qq.code)) continue; seen.add(qq.code); allQ.push(qq); (qq.kind === 'scale' ? scaleQ : textQ).push(qq); } }
   const qById = {}; for(const f of FORMS) for(const sec of f.form_sections) for(const qq of sec.questions) qById[qq.id] = qq;
-  const order = { self:0, lead:1, peer:2 };
-  const rows = as.slice().sort((x,y) => fullName(x.reviewee).localeCompare(fullName(y.reviewee)) || order[x.role]-order[y.role] || fullName(x.reviewer).localeCompare(fullName(y.reviewer))).map(a => {
-    const byCode = {}; for(const an of (ans||[]).filter(x=>x.assignment_id===a.id)){ const qq = qById[an.question_id]; if(qq) byCode[qq.code] = an.value_num != null ? an.value_num : (an.value_text||""); }
-    return [fullName(a.reviewee), TEAM_LABEL[a.reviewee.team]||"", ROLE_LABEL[a.role], fullName(a.reviewer), a.submitted_at ? fmtD(a.submitted_at) : ""].concat(cols.map(col => byCode[col.code] ?? ""));
-  });
-  const head = ["Persona evaluada","Equipo","Tipo de review","Evaluador","Enviada"].concat(cols.map(col => col.text));
-  const cell = v => `"${String(v).replace(/"/g,'""').replace(/\r?\n/g," ")}"`;
-  const csv = [head.map(cell).join(";")].concat(rows.map(r => r.map(cell).join(";"))).join("\n");
-  const blob = new Blob(["﻿" + csv], { type:"text/csv;charset=utf-8" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u;
-  el.download = `${c.name}${revieweeId ? " - " + fullName(person(revieweeId)) : ""}.csv`.replace(/[\\/:*?"<>|]/g,"-"); el.click(); URL.revokeObjectURL(u);
-  toast(`Excel con ${rows.length} respuestas`);
+  const short = t => t.replace(/ and accountability| Technical/g, "");
+  const ansOf = a => { const by = {}; for(const an of (ans||[]).filter(x => x.assignment_id === a.id)){ const qq = qById[an.question_id]; if(qq) by[qq.code] = an.value_num != null ? an.value_num : (an.value_text || ""); } return by; };
+  const order = { lead:0, peer:1, self:2 };
+  const byReviewee = {}; for(const a of as) (byReviewee[a.reviewee_id] ||= []).push(a);
+
+  await loadExcelJS();
+  const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
+  const NAVY = "FF0E2150", SOFT = "FFF2F5FA", MID = "FFE1F3F5", LINE = "FFD9DEE7", GREY = "FF5C6675";
+  const thin = { style:"thin", color:{ argb:LINE } }; const box = { top:thin, left:thin, bottom:thin, right:thin };
+  const headRow = (ws, r, vals) => { const row = ws.getRow(r); vals.forEach((v, i) => { const cell = row.getCell(i+1); cell.value = v; cell.font = { bold:true, color:{ argb:"FFFFFFFF" }, size:10 }; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:NAVY } }; cell.alignment = { vertical:"middle", horizontal: i < 3 ? "left" : "center", wrapText:true }; cell.border = box; }); row.height = 34; return row; };
+  const title = (ws, r, text, size=14) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { bold:true, size, color:{ argb:NAVY } }; };
+  const sub = (ws, r, text) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { size:10, color:{ argb:GREY } }; };
+  const num = (cell, v, dec) => { if(v == null || Number.isNaN(v)) { cell.value = "—"; cell.alignment = { horizontal:"center" }; return; } cell.value = dec ? Math.round(v * 10) / 10 : v; cell.numFmt = dec ? "0.0" : "0"; cell.alignment = { horizontal:"center" }; };
+  const usedNames = new Set(); const sheetName = p => { let n = `${p.last_name}, ${p.first_name}`.replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(usedNames.has(k)) k = n.slice(0, 28) + " " + (i++); usedNames.add(k); return k; };
+
+  // ---------- Resumen ----------
+  const people = Object.values(byReviewee).map(list => list[0].reviewee).sort((a,b) => (TEAM_LABEL[a.team]||"").localeCompare(TEAM_LABEL[b.team]||"") || a.last_name.localeCompare(b.last_name));
+  const stats = {};   // reviewee_id -> { n, perQ:{code:{w,a,self}}, W, A, S }
+  for(const p of people){
+    const list = byReviewee[p.id]; const per = {}; let allW = 0, allWs = 0, allS = 0, allN = 0, selfS = 0, selfN = 0; const reviewers = new Set();
+    for(const a of list){ const by = ansOf(a); for(const qq of scaleQ){ const v = by[qq.code]; if(v == null || v === "") continue; const o = (per[qq.code] ||= { sum:0, n:0, wsum:0, w:0, self:null });
+      if(a.role === 'self'){ o.self = Number(v); selfS += Number(v); selfN++; continue; }
+      const w = reviewWeight(p, a.reviewer, a.role); o.sum += Number(v); o.n++; o.wsum += Number(v) * w; o.w += w; allWs += Number(v) * w; allW += w; allS += Number(v); allN++; reviewers.add(a.reviewer_id); } }
+    stats[p.id] = { n:reviewers.size, per, W: allW ? allWs/allW : null, A: allN ? allS/allN : null, S: selfN ? selfS/selfN : null };
+  }
+  if(scaleQ.length && (!revieweeId || people.length > 1)){
+    const ws = wb.addWorksheet("Resumen", { views:[{ state:"frozen", xSplit:2, ySplit:5 }] });
+    title(ws, 1, c.name, 16); sub(ws, 2, `${c.period_label || ""}${c.period_label ? " · " : ""}Exportado el ${fmtD(new Date())} por ${fullName(ME)} · medias por competencia (ponderadas) y globales · sin la autoevaluación en las medias`);
+    ws.getRow(3).height = 6;
+    const head = ["Persona", "Equipo", "Opiniones"].concat(scaleQ.map(qq => short(qq.text)), ["Media ponderada", "Media aritmética", "Autoevaluación"]);
+    headRow(ws, 5, head);
+    people.forEach((p, i) => { const st = stats[p.id]; const row = ws.getRow(6 + i); row.getCell(1).value = fullName(p); row.getCell(1).font = { bold:true }; row.getCell(2).value = TEAM_LABEL[p.team] || ""; num(row.getCell(3), st.n, false);
+      scaleQ.forEach((qq, j) => { const o = st.per[qq.code]; num(row.getCell(4 + j), o && o.w ? o.wsum / o.w : null, true); });
+      const k = 4 + scaleQ.length; num(row.getCell(k), st.W, true); num(row.getCell(k+1), st.A, true); num(row.getCell(k+2), st.S, true);
+      row.getCell(k).font = { bold:true }; [k, k+1, k+2].forEach(x => row.getCell(x).fill = { type:"pattern", pattern:"solid", fgColor:{ argb: x === k ? MID : SOFT } });
+      row.eachCell({ includeEmpty:true }, cell => { if(cell.col <= head.length) cell.border = box; }); if(i % 2) row.eachCell(cell => { if(cell.col > 3 && cell.col < k && !cell.fill) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFFAFBFD" } }; }); });
+    ws.getColumn(1).width = 28; ws.getColumn(2).width = 13; ws.getColumn(3).width = 10; scaleQ.forEach((_, j) => ws.getColumn(4 + j).width = 15); [0,1,2].forEach(x => ws.getColumn(4 + scaleQ.length + x).width = 15);
+  }
+
+  // ---------- Una hoja por persona ----------
+  for(const p of people){
+    const list = byReviewee[p.id].slice().sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewer).localeCompare(fullName(y.reviewer)));
+    const opinions = list.filter(a => a.role !== 'self'), selfA = list.find(a => a.role === 'self');
+    const lead = list.find(a => a.role === 'lead'); const st = stats[p.id];
+    const ws = wb.addWorksheet(sheetName(p), { views:[{ state:"frozen", xSplit:1, ySplit:6 }] });
+    title(ws, 1, fullName(p), 16); sub(ws, 2, [TEAM_LABEL[p.team], p.position].filter(Boolean).join(" · "));
+    sub(ws, 3, `${c.name}${c.period_label ? " · " + c.period_label : ""} · Lead reviewer: ${lead ? fullName(lead.reviewer) : "—"} · ${opinions.length} ${opinions.length === 1 ? "opinión" : "opiniones"}`);
+    let r = 6;
+    // UNA tabla ancha: evaluador, rol, peso y todas las preguntas del ciclo en su orden (puntuaciones y textos mezclados como en el formulario)
+    const FIRST = 4, TXT_W = 46, SC_W = 13;
+    const head = ["Evaluador", "Rol", "Peso"].concat(allQ.map(qq => qq.kind === 'scale' ? short(qq.text) : qq.text));
+    headRow(ws, r, head); ws.getRow(r).height = 48; r++;
+    const nCols = head.length;
+    const fillRow = (row, a, by, isSelf) => {
+      row.getCell(1).value = fullName(a.reviewer); row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
+      row.getCell(2).value = ROLE_LABEL[a.role] + (a.reviewer.team && !isSelf ? " · " + (TEAM_LABEL[a.reviewer.team]||"") : ""); row.getCell(2).font = { size:9, color:{ argb:GREY } }; row.getCell(2).alignment = { vertical:"top", wrapText:true };
+      if(isSelf){ row.getCell(3).value = "—"; row.getCell(3).alignment = { horizontal:"center", vertical:"top" }; } else num(row.getCell(3), reviewWeight(p, a.reviewer, a.role), false), row.getCell(3).alignment = { horizontal:"center", vertical:"top" };
+      let lines = 1;
+      allQ.forEach((qq, j) => { const v = by[qq.code]; const cell = row.getCell(FIRST + j); const ok = v != null && String(v).trim() !== "";
+        if(qq.kind === 'scale'){ num(cell, ok ? Number(v) : null, false); cell.alignment = { horizontal:"center", vertical:"top" }; }
+        else { cell.value = ok ? String(v) : ""; cell.alignment = { wrapText:true, vertical:"top" }; if(ok) lines = Math.max(lines, Math.ceil(String(v).length / (TXT_W * 1.05)) + String(v).split("\n").length - 1); } });
+      row.height = Math.min(300, Math.max(18, lines * 15 + 4));
+      row.eachCell({ includeEmpty:true }, cell => { if(cell.col <= nCols) cell.border = box; });
+    };
+    for(const a of opinions){ fillRow(ws.getRow(r), a, ansOf(a), false); r++; }
+    // debajo de las puntuaciones: autoevaluación (con sus textos), media aritmética y media ponderada
+    if(selfA){ const row = ws.getRow(r); fillRow(row, selfA, ansOf(selfA), true); row.getCell(1).value = "Autoevaluación"; row.getCell(2).value = fullName(p); row.eachCell({ includeEmpty:true }, cell => { if(cell.col <= nCols) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; }); r++; }
+    else { const row = ws.getRow(r); row.getCell(1).value = "Autoevaluación"; row.getCell(1).font = { bold:true }; row.getCell(2).value = "no enviada"; row.getCell(2).font = { size:9, color:{ argb:GREY } }; row.eachCell({ includeEmpty:true }, cell => { if(cell.col <= nCols){ cell.border = box; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; } }); for(let x = 1; x <= nCols; x++){ const cell = row.getCell(x); cell.border = box; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; } r++; }
+    if(scaleQ.length){
+      const means = [
+        ["Media aritmética", "todas las opiniones por igual", SOFT, false, code => { const o = st.per[code]; return o && o.n ? o.sum / o.n : null; }],
+        ["Media ponderada", "peso 1 · +1 mismo equipo · +1 socio o lead", MID, true, code => { const o = st.per[code]; return o && o.w ? o.wsum / o.w : null; }],
+      ];
+      for(const [label, note, fill, bold, fn] of means){ const row = ws.getRow(r); row.getCell(1).value = label; row.getCell(1).font = { bold:true }; row.getCell(2).value = note; row.getCell(2).font = { size:9, color:{ argb:GREY } };
+        allQ.forEach((qq, j) => { if(qq.kind !== 'scale') return; const cell = row.getCell(FIRST + j); num(cell, fn(qq.code), true); if(bold) cell.font = { bold:true }; });
+        for(let x = 1; x <= nCols; x++){ const cell = row.getCell(x); cell.border = box; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:fill } }; } r++; }
+    }
+    ws.getColumn(1).width = 26; ws.getColumn(2).width = 24; ws.getColumn(3).width = 7;
+    allQ.forEach((qq, j) => ws.getColumn(FIRST + j).width = qq.kind === 'scale' ? SC_W : TXT_W);
+    const wide = nCols;
+    r += 2;
+    // resumen final del lead reviewer, si está escrito
+    const fr = (frs||[]).find(f => f.reviewee_id === p.id);
+    if(fr && (fr.summary || fr.positives || fr.development || fr.quotes || fr.objectives)){
+      const is360 = c.kind === '360';
+      const fields = is360 ? [["summary","Reviewer Summary"],["positives","Main Positives"],["development","Main Areas of Development"],["quotes","Key Quotes from Reviewers"],["objectives",`Objectives${fr.objectives_year ? " " + fr.objectives_year : ""}`]] : [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]];
+      const hr = ws.getRow(r); ws.mergeCells(r, 1, r, wide); hr.getCell(1).value = `Resumen final del lead reviewer${fr.status === 'sent' ? "" : " (borrador)"}`; hr.getCell(1).font = { bold:true, color:{ argb:"FFFFFFFF" } }; hr.getCell(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FF0E9AAB" } }; hr.height = 22; r++;
+      for(const [k, label] of fields){ if(!fr[k]) continue; const row = ws.getRow(r); row.getCell(1).value = label; row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
+        ws.mergeCells(r, 2, r, wide); const tc = row.getCell(2); tc.value = fr[k]; tc.alignment = { wrapText:true, vertical:"top" }; row.height = Math.min(260, Math.max(18, Math.ceil(String(fr[k]).length / 120) * 15 + 6)); [1,2].forEach(x => row.getCell(x).border = box); r++; }
+    }
+  }
+  const filename = `${c.name}${revieweeId ? " - " + fullName(person(revieweeId) || people[0]) : ""}.xlsx`.replace(/[\\/:*?"<>|]/g, "-");
+  return { wb, filename, people: people.length, answers: as.length };
+}
+async function exportCycleExcel(cycleId, revieweeId){
+  toast("Preparando el Excel…");
+  let built; try{ built = await buildCycleWorkbook(cycleId, revieweeId); }catch(e){ return err(e, "Excel"); }
+  if(!built) return toast("No hay respuestas enviadas que exportar");
+  const buf = await built.wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = built.filename; el.click(); URL.revokeObjectURL(u);
+  toast(`Excel: ${built.people} persona${built.people>1?'s':''}, ${built.answers} respuestas`);
 }
 /* ---------- Resumen final del lead reviewer ---------- */
 function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
@@ -1490,8 +1592,8 @@ const ADMIN = {
     return kpis + `<div class="grid g2" style="margin-bottom:18px">
       <div class="card"><h3><i class="ti ti-mail"></i> Correos de aviso <span class="r">${on ? '<span class="pill ok">activados</span>' : '<span class="pill gray">desactivados</span>'}</span></h3>
         <p class="sm" style="margin-top:0">Cada persona recibe un correo cuando <b>empieza</b> un ciclo, cuando <b>quedan pocos días</b>, el <b>día del cierre</b>, cuando el ciclo <b>ha cerrado</b> y, al instante, cuando su lead reviewer pulsa <b>«Mostrar resultados»</b>. Salen del buzón de abajo con Microsoft 365; dentro de la app no se muestra ningún aviso.</p>
-        <div class="two"><div><label class="xs mut" style="display:block;margin-bottom:4px">Buzón remitente</label><input class="inp" id="ml_from" placeholder="enquiries@abaccapital.com" value="${esc(SETTINGS.mail_from||"")}"></div>
-          <div><label class="xs mut" style="display:block;margin-bottom:4px">Recordatorios: días antes del cierre</label><input class="inp" id="ml_days" value="${esc(days)}" placeholder="7, 3, 1"></div></div>
+        <div class="two"><div><label class="xs mut" style="display:block;margin-bottom:4px">Buzón remitente</label><input type="text" class="inp" id="ml_from" placeholder="enquiries@abaccapital.com" value="${esc(SETTINGS.mail_from||"")}"></div>
+          <div><label class="xs mut" style="display:block;margin-bottom:4px">Recordatorios: días antes del cierre</label><input type="text" class="inp" id="ml_days" value="${esc(days)}" placeholder="7, 3, 1"></div></div>
         <div class="chk" style="margin-top:12px"><input type="checkbox" id="ml_on" ${on?"checked":""}><label>Enviar correos</label></div>
         <div class="row" style="gap:8px;margin-top:14px"><button class="btn pri" onclick="mailSave()"><i class="ti ti-check"></i> Guardar</button></div></div>
       <div class="card"><h3><i class="ti ti-bolt"></i> Acciones</h3>
