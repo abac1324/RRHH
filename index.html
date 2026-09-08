@@ -1005,19 +1005,61 @@ PAGES.results = async function(){
   </div>`;
 };
 // PDF de Mis resultados: la misma vista (recuadros, araña y barras como imagen) en una ventana lista para «Guardar como PDF»
-function downloadResultsPDF(){
+// Carga una librería externa una sola vez (cdnjs)
+function loadScript(url, ready){
+  if(ready()) return Promise.resolve();
+  return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = url; el.onload = () => ready() ? ok() : ko(new Error("Librería no disponible")); el.onerror = () => ko(new Error("No se pudo cargar " + url)); document.head.appendChild(el); });
+}
+async function downloadResultsPDF(){
   const card = document.getElementById("resCard"); if(!card) return;
+  toast("Generando el PDF…");
+  try{
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js", () => !!window.html2canvas);
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => !!(window.jspdf && window.jspdf.jsPDF));
+  }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  // Copia de la ficha con los gráficos convertidos en imagen
   const clone = card.cloneNode(true);
   clone.querySelectorAll("canvas").forEach((cv, i) => { const src = card.querySelectorAll("canvas")[i]; const img = document.createElement("img"); try{ img.src = src.toDataURL("image/png"); }catch(e){} img.style.cssText = "width:100%;height:auto;display:block"; cv.replaceWith(img); });
   clone.querySelectorAll("button").forEach(b => b.remove());
-  const css = [...document.querySelectorAll("style")].map(st => st.textContent).join("\n");
-  const w = window.open("", "_blank"); if(!w) return toast("El navegador ha bloqueado la ventana del PDF", true);
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(fullName(ME))} · ${esc(view_title())}</title><style>${css}
-    body{background:#fff;margin:0;padding:24px;transform:none} .card{box-shadow:none;border:1px solid #e3e7ee} .radar .box,.dist .d1 .box{height:auto} .res-head .t{font-size:18px}
-    @page{size:A4;margin:14mm} @media print{.dist{grid-template-columns:repeat(3,minmax(0,1fr))}}</style></head><body>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-weight:800;font-size:15px;color:#0e2150">Abac RRHH · Evaluaciones de desempeño</div><div style="margin-left:auto;font-size:12px;color:#5c6675">${esc(fullName(ME))} · ${new Date().toLocaleDateString("es-ES")}</div></div>
-    ${clone.outerHTML}<script>setTimeout(()=>{window.print();},400);<\/script></body></html>`);
-  w.document.close();
+  clone.style.cssText = "box-shadow:none;border:1px solid #e3e7ee;margin:0";
+  // Página A4 con márgenes de 10 mm: 190 mm de ancho útil = 718 px CSS. El contenido se maqueta a ese ancho detrás de la app
+  const MM_W = 190, MM_H = 275, PX_W = 718, PX_PER_MM = PX_W / MM_W, PAGE_PX = Math.floor(MM_H * PX_PER_MM);
+  const outer = document.createElement("div"); outer.style.cssText = `position:absolute;left:0;top:0;z-index:-1;width:${PX_W}px;background:#fff`;
+  const wrap = document.createElement("div"); wrap.id = "pdfwrap";
+  wrap.style.cssText = "width:100%;box-sizing:border-box;background:#fff;padding:4px 2px;font-family:Inter,Segoe UI,Arial,sans-serif;color:#1c2230";
+  wrap.innerHTML = `<div class="pdfhead" style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-weight:800;font-size:15px;color:#0e2150">Abac RRHH · Evaluaciones de desempeño</div><div style="margin-left:auto;font-size:12px;color:#5c6675">${esc(fullName(ME))} · ${new Date().toLocaleDateString("es-ES")}</div></div>`;
+  wrap.appendChild(clone); outer.appendChild(wrap); document.body.appendChild(outer);
+  wrap.querySelectorAll(".radar .box, .dist .d1 .box").forEach(b => b.style.height = "auto");
+  // Las barras por nota, de dos en dos: cada pareja es un bloque que no se parte entre páginas
+  wrap.querySelectorAll(".dist").forEach(d => { const items = [...d.children]; d.innerHTML = ""; for(let i = 0; i < items.length; i += 2){ const row = document.createElement("div"); row.className = "pdfrow"; row.appendChild(items[i]); if(items[i+1]) row.appendChild(items[i+1]); else { const ph = document.createElement("div"); ph.className = "d1 ph"; row.appendChild(ph); } d.appendChild(row); } });
+  const st = document.createElement("style");
+  st.textContent = "#pdfwrap .card{box-shadow:none;border:1px solid #e3e7ee;margin:0;padding:18px 20px} #pdfwrap .res-head{flex-wrap:wrap} #pdfwrap .dist{display:block} #pdfwrap .pdfrow{display:flex;gap:12px;margin-bottom:12px} #pdfwrap .pdfrow .d1{flex:1 1 0;min-width:0} #pdfwrap .pdfrow .d1.ph{border:0;background:transparent} #pdfwrap .radar .box,#pdfwrap .d1 .box{height:auto} #pdfwrap img{max-width:100%}";
+  wrap.prepend(st);
+  try{
+    // esperar a que las imágenes de los gráficos estén decodificadas (si no, salen en blanco)
+    await new Promise(res => { const t0 = Date.now(); const tick = () => { const imgs = [...wrap.querySelectorAll("img")]; if(imgs.every(im => im.naturalWidth > 0) || Date.now() - t0 > 4000) res(); else setTimeout(tick, 50); }; tick(); });
+    await new Promise(r => setTimeout(r, 150));
+    const SCALE = 2;
+    const big = await html2canvas(wrap, { scale:SCALE, backgroundColor:"#ffffff", useCORS:true, logging:false });
+    // Cortes de página: nunca dentro de un bloque protegido; el corte sube hasta el borde superior del bloque que quedaría partido
+    const w0 = wrap.getBoundingClientRect(); const totalPx = w0.height;
+    const blocks = [...wrap.querySelectorAll(".pdfrow, .radars, .fr-read > div, .fr-read, .prev-obj, .res-head, .pdfhead, h3, h4, h5")].map(el => { const r = el.getBoundingClientRect(); return { top: r.top - w0.top, bottom: r.bottom - w0.top }; }).filter(b => b.bottom - b.top < PAGE_PX * 0.9);
+    const cuts = []; let y = 0;
+    while(y + PAGE_PX < totalPx){ let cut = y + PAGE_PX; for(let k = 0; k < 6; k++){ const hit = blocks.find(b => b.top < cut - 2 && b.bottom > cut + 2); if(!hit) break; cut = hit.top - 6; } if(cut <= y + PAGE_PX * 0.35) cut = y + PAGE_PX; cuts.push(cut); y = cut; }
+    cuts.push(totalPx);
+    const { jsPDF } = window.jspdf; const pdf = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
+    let from = 0;
+    cuts.forEach((to, idx) => { const hPx = to - from; if(hPx <= 1) return; if(idx > 0) pdf.addPage();
+      const slice = document.createElement("canvas"); slice.width = big.width; slice.height = Math.round(hPx * SCALE);
+      const g = slice.getContext("2d"); g.fillStyle = "#ffffff"; g.fillRect(0, 0, slice.width, slice.height); g.drawImage(big, 0, Math.round(from * SCALE), big.width, slice.height, 0, 0, big.width, slice.height);
+      pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, MM_W, hPx / PX_PER_MM);
+      pdf.setFontSize(8); pdf.setTextColor(140); pdf.text(`${idx + 1} / ${cuts.length}`, 200, 291, { align:"right" });
+      from = to; });
+    const filename = `${fullName(ME)} - ${view_title()}.pdf`.replace(/[\\/:*?"<>|]/g, "-");
+    const blob = pdf.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
+    toast(`PDF descargado (${cuts.length} página${cuts.length > 1 ? "s" : ""})`);
+  }catch(e){ err(e, "PDF"); }
+  finally{ outer.remove(); }
 }
 function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
 // Araña con tres líneas y pop-up de las tres notas al pasar por un eje
@@ -1162,10 +1204,7 @@ PAGES.review = async function(arg){
 AFTER.review = async function(){ drawResults(window.RES_VIEW); };
 /* ---------- Excel (CSV) con todas las respuestas de un ciclo: una fila por respuesta, una columna por pregunta ---------- */
 // ExcelJS se carga solo cuando hace falta (cdnjs)
-function loadExcelJS(){
-  if(window.ExcelJS) return Promise.resolve();
-  return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"; el.onload = ok; el.onerror = () => ko(new Error("No se pudo cargar ExcelJS")); document.head.appendChild(el); });
-}
+function loadExcelJS(){ return loadScript("https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js", () => !!window.ExcelJS); }
 // Peso de cada opinión, igual que review_weight() en la base de datos: 1, +1 mismo equipo, +1 socio o lead reviewer
 function reviewWeight(reviewee, reviewer, role){
   const rp = person(reviewer.id) || reviewer;
@@ -1177,8 +1216,6 @@ async function buildCycleWorkbook(cycleId, revieweeId){
   const { data:as, error } = await q; if(error) throw error;
   if(!as || !as.length) return null;
   const { data:ans } = await sb.from("answers").select("*").in("assignment_id", as.map(a=>a.id));
-  let frq = sb.from("final_reviews").select("*").eq("cycle_id", cycleId); if(revieweeId) frq = frq.eq("reviewee_id", revieweeId);
-  const { data:frs } = await frq;
   // preguntas del ciclo, en orden y sin repetir código
   const scaleQ = [], textQ = [], allQ = []; const seen = new Set();
   for(const cf of (c.cycle_forms||[])){ const f = byId(FORMS, cf.form_id); if(!f) continue; for(const sec of f.form_sections) for(const qq of sec.questions){ if(seen.has(qq.code)) continue; seen.add(qq.code); allQ.push(qq); (qq.kind === 'scale' ? scaleQ : textQ).push(qq); } }
@@ -1262,17 +1299,6 @@ async function buildCycleWorkbook(cycleId, revieweeId){
     }
     ws.getColumn(1).width = 26; ws.getColumn(2).width = 24; ws.getColumn(3).width = 7;
     allQ.forEach((qq, j) => ws.getColumn(FIRST + j).width = qq.kind === 'scale' ? SC_W : TXT_W);
-    const wide = nCols;
-    r += 2;
-    // resumen final del lead reviewer, si está escrito
-    const fr = (frs||[]).find(f => f.reviewee_id === p.id);
-    if(fr && (fr.summary || fr.positives || fr.development || fr.quotes || fr.objectives)){
-      const is360 = c.kind === '360';
-      const fields = is360 ? [["summary","Reviewer Summary"],["positives","Main Positives"],["development","Main Areas of Development"],["quotes","Key Quotes from Reviewers"],["objectives",`Objectives${fr.objectives_year ? " " + fr.objectives_year : ""}`]] : [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]];
-      const hr = ws.getRow(r); ws.mergeCells(r, 1, r, wide); hr.getCell(1).value = `Resumen final del lead reviewer${fr.status === 'sent' ? "" : " (borrador)"}`; hr.getCell(1).font = { bold:true, color:{ argb:"FFFFFFFF" } }; hr.getCell(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FF0E9AAB" } }; hr.height = 22; r++;
-      for(const [k, label] of fields){ if(!fr[k]) continue; const row = ws.getRow(r); row.getCell(1).value = label; row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
-        ws.mergeCells(r, 2, r, wide); const tc = row.getCell(2); tc.value = fr[k]; tc.alignment = { wrapText:true, vertical:"top" }; row.height = Math.min(260, Math.max(18, Math.ceil(String(fr[k]).length / 120) * 15 + 6)); [1,2].forEach(x => row.getCell(x).border = box); r++; }
-    }
   }
   const filename = `${c.name}${revieweeId ? " - " + fullName(person(revieweeId) || people[0]) : ""}.xlsx`.replace(/[\\/:*?"<>|]/g, "-");
   return { wb, filename, people: people.length, answers: as.length };
