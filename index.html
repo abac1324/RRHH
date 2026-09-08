@@ -630,9 +630,12 @@ function questionsFor(form, role){
   }
   return out;
 }
-function formFor(cycle, role, team){
+// Cuestionario de un ciclo para un papel: el más específico que haya (equipo del evaluado + equipo del evaluador → equipo del evaluado → general)
+function formFor(cycle, role, team, reviewerTeam){
   const cf = (cycle.cycle_forms||[]);
-  const hit = cf.find(x => x.role===role && x.team===team) || cf.find(x => x.role===role && !x.team);
+  const hit = (reviewerTeam && cf.find(x => x.role===role && x.team===team && x.reviewer_team===reviewerTeam))
+    || cf.find(x => x.role===role && x.team===team && !x.reviewer_team)
+    || cf.find(x => x.role===role && !x.team && !x.reviewer_team);
   return hit ? byId(FORMS, hit.form_id) : null;
 }
 
@@ -888,7 +891,6 @@ function scaleHTML(q, val, editable, qid){
 // Hard Technical Skills cuando alguien de Operations evalúa a alguien del Deal Team (misma regla en submit_assignment, en la base de datos)
 function isRequired(q, a, sec){
   a = a || (CUR && CUR.a); if(!q.required) return false;
-  if((q.code === 'judgement' || q.code === 'hard_skills') && a && a.reviewer && a.reviewee && a.reviewer.team === 'operations' && a.reviewee.team === 'deal') return false;
   // Todo el mundo ve la plantilla entera de cada equipo (Hugo, 08-sep-2026); lo que el Word reserva al evaluado o al lead sale opcional para los demás
   if(sec && sec.title === 'Work Recognition' && a && a.role !== 'self') return false;   // «Section to be filled by Reviewee ONLY (& optional for Lead Reviewer)»
   if(sec && sec.title === 'Firm Contribution' && a && a.role === 'peer') return false;  // «Section ONLY to be filled by Reviewee and Lead Reviewer»
@@ -1837,9 +1839,25 @@ async function mailSendNow(quiet){
 }
 
 /* ----- Ciclo: crear / editar ----- */
+// Huecos de cuestionario de un ciclo: quién rellena qué. «selflead» = autoevaluación y valoración del lead con el mismo cuestionario.
+const FORM_SLOTS = [
+  { key:"self_deal",       role:"selflead", team:"deal",       label:"<b>Autoevaluación y lead reviewer</b> · <b>Deal Team</b>" },
+  { key:"self_operations", role:"selflead", team:"operations", label:"<b>Autoevaluación y lead reviewer</b> · <b>Operations</b>" },
+  { key:"self_nest",       role:"selflead", team:"nest",       label:"<b>Autoevaluación y lead reviewer</b> · <b>Nest</b>" },
+  { key:"peer_deal_deal",             role:"peer", team:"deal",       rteam:"deal",       label:"<b>Deal Team</b> evaluado por <b>Deal Team</b>" },
+  { key:"peer_deal_operations",       role:"peer", team:"deal",       rteam:"operations", label:"<b>Deal Team</b> evaluado por <b>Operations</b>" },
+  { key:"peer_nest_nest",             role:"peer", team:"nest",       rteam:"nest",       label:"<b>Nest</b> evaluado por <b>Nest</b>" },
+  { key:"peer_nest_operations",       role:"peer", team:"nest",       rteam:"operations", label:"<b>Nest</b> evaluado por <b>Operations</b>" },
+  { key:"peer_operations_deal",       role:"peer", team:"operations", rteam:"deal",       label:"<b>Operations</b> evaluado por <b>Deal Team</b>" },
+  { key:"peer_operations_nest",       role:"peer", team:"operations", rteam:"nest",       label:"<b>Operations</b> evaluado por <b>Nest</b>" },
+  { key:"peer_operations_operations", role:"peer", team:"operations", rteam:"operations", label:"<b>Operations</b> evaluado por <b>Operations</b>" },
+  { key:"self", role:"self", team:null, label:"Autoevaluación · cualquier equipo (junio)" },
+  { key:"lead", role:"lead", team:null, label:"Lead reviewer · cualquier equipo (junio)" },
+  { key:"peer", role:"peer", team:null, label:"Compañeros · cualquier equipo (junio)" },
+];
 const CYCLE_TEMPLATES = {
   dic: { label:"Evaluación de diciembre · 360 por equipos", kind:"360", desc:"Cada persona se autoevalúa; Deal Team y Operations evalúan al Deal Team; todo el mundo evalúa a Operations; el resto de Nest y Operations evalúan a Nest; los equity partners evalúan a todo el mundo y a ellos nadie. El lead reviewer (asignado por administración) valora y escribe el resumen final. La persona solo ve ese resumen y sus gráficos agregados, cuando el lead pulsa «Mostrar resultados».",
-         forms:{ self:"dic_self_lead", lead:"dic_self_lead", self_deal:"dic_self_deal", peer_deal:"dic_self_deal", peer_operations:"dic_self_lead", peer_nest:"dic_self_lead", peer:"dic_self_lead" },   // un cuestionario por equipo para todo el mundo
+         forms:{ self_deal:"dic_deal_self", self_operations:"dic_ops_self", self_nest:"dic_nest_self", peer_deal_deal:"dic_deal_by_deal", peer_deal_operations:"dic_deal_by_ops", peer_nest_nest:"dic_nest_by_nest", peer_nest_operations:"dic_nest_by_ops", peer_operations_deal:"dic_ops_by_deal", peer_operations_nest:"dic_ops_by_nest", peer_operations_operations:"dic_ops_by_ops" },   // un cuestionario por pareja de equipos (Word revisados, 08-sep-2026)
          visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:false, peers_see_self:false } },
   jun: { label:"Mid Term Feedback · junio (cascada)", kind:"cascade", desc:"Cada persona se autoevalúa y elige a 2-3 compañeros; el lead reviewer lo asigna administración. Compañeros y lead responden sin ver la autoevaluación; el lead la lee, junto con las respuestas de los compañeros, cuando ha enviado la suya y va a escribir el resumen. La persona solo ve el resumen del lead cuando este pulsa «Mostrar resultados».",
          forms:{ self:"jun_self", lead:"jun_lead", peer:"jun_peer" },
@@ -1852,7 +1870,7 @@ function readCycleForm(){
   const mode = (document.querySelector('input[name="vmode"]:checked')||{}).value || "aggregate";
   return {
     name:g("cy_name").value.trim(), kind:g("cy_kind").value, period_label:g("cy_period").value.trim()||null, opens_at:g("cy_open").value||null, closes_at:g("cy_close").value||null,
-    forms:{ self:g("cf_self").value, lead:g("cf_lead").value, self_deal:g("cf_self_deal").value, peer_deal:g("cf_peer_deal").value, peer_operations:g("cf_peer_operations").value, peer_nest:g("cf_peer_nest").value },
+    forms:Object.fromEntries(FORM_SLOTS.map(sl => [sl.key, (g("cf_" + sl.key) || {}).value || ""])),
     visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||0, reviewee_sees_lead:g("v_lead").checked, peers_see_self:false, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
   };
 }
@@ -1874,8 +1892,7 @@ function applyTemplate(key){
   const g = x => document.getElementById(x);
   const fid = code => (FORMS.find(f=>f.code===code)||{}).id || "";
   g("cy_kind").value = t.kind;
-  g("cf_self").value = fid(t.forms.self||""); g("cf_lead").value = fid(t.forms.lead||""); g("cf_self_deal").value = fid(t.forms.self_deal||"");
-  g("cf_peer_deal").value = fid(t.forms.peer_deal||t.forms.peer||""); g("cf_peer_operations").value = fid(t.forms.peer_operations||t.forms.peer||""); g("cf_peer_nest").value = fid(t.forms.peer_nest||t.forms.peer||"");
+  FORM_SLOTS.forEach(sl => { const el = g("cf_" + sl.key); if(el) el.value = fid(t.forms[sl.key] || ""); });
   const v = t.visibility;
   const r = document.querySelector(`input[name="vmode"][value="${v.reviewee_sees_peers}"]`); if(r) r.checked = true;
   g("v_thr").value = v.anon_threshold; g("v_lead").checked = v.reviewee_sees_lead; g("v_lap").checked = v.lead_after_peers; g("v_picks").checked = !!v.reviewee_picks;
@@ -1890,6 +1907,7 @@ function editCycle(id){
   const c = id ? byId(CYCLES,id) : { name:"", kind:"360", period_label:"", opens_at:"", closes_at:"", status:"draft", visibility:{peers_attributed:false,reviewee_sees_peers:"aggregate",reviewee_sees_lead:true,anon_threshold:0,lead_after_peers:false,peers_see_self:false}, cycle_forms:[] };
   const v = c.visibility||{}; const cf = r => ((c.cycle_forms||[]).find(x=>x.role===r&&!x.team)||{}).form_id||"";
   const cfTeam = (r,t) => ((c.cycle_forms||[]).find(x=>x.role===r&&x.team===t)||{}).form_id || cf(r);
+  const cfSlot = sl => ((c.cycle_forms||[]).find(x => x.role === (sl.role === 'selflead' ? 'self' : sl.role) && (x.team||null) === (sl.team||null) && (x.reviewer_team||null) === (sl.rteam||null)) || {}).form_id || "";
   const fopts = sel => `<option value="">—</option>${FORMS.map(f=>`<option value="${f.id}" ${f.id===sel?"selected":""}>${esc(fname(f.id))}</option>`).join("")}`;
   const mode = v.reviewee_sees_peers || "aggregate";
   const opt = (val, ic, title, desc) => `<label class="opt ${mode===val?'on':''}"><input type="radio" name="vmode" value="${val}" ${mode===val?"checked":""}><div class="ot"><i class="ti ti-${ic}"></i>${title}</div><div class="od">${desc}</div></label>`;
@@ -1903,12 +1921,7 @@ function editCycle(id){
    <details id="adv" ${id?"":""} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;color:var(--ink);font-size:13px"><i class="ti ti-adjustments"></i> Cambiar cómo funciona <span class="mut" style="font-weight:500">· normalmente no hace falta</span></summary>
    <h3 style="margin-top:14px">1 · Qué cuestionario rellena cada uno</h3>
    <table class="qtable">
-     <tr><td><b>Cada persona</b>, sobre sí misma (Operations y Nest)</td><td><select class="inp" id="cf_self">${fopts(cf('self'))}</select></td></tr>
-     <tr><td><b>El lead reviewer</b>, sobre la persona que revisa (Operations y Nest)</td><td><select class="inp" id="cf_lead">${fopts(cf('lead'))}</select></td></tr>
-     <tr><td><b>Autoevaluación y lead reviewer</b> de alguien del <b>Deal Team</b></td><td><select class="inp" id="cf_self_deal">${fopts(cfTeam('self','deal'))}</select></td></tr>
-     <tr><td><b>Los compañeros</b>, cuando evalúan a alguien del <b>Deal Team</b></td><td><select class="inp" id="cf_peer_deal">${fopts(cfTeam('peer','deal'))}</select></td></tr>
-     <tr><td>Los compañeros, cuando evalúan a alguien de <b>Operations</b></td><td><select class="inp" id="cf_peer_operations">${fopts(cfTeam('peer','operations'))}</select></td></tr>
-     <tr><td>Los compañeros, cuando evalúan a alguien de <b>Nest</b></td><td><select class="inp" id="cf_peer_nest">${fopts(cfTeam('peer','nest'))}</select></td></tr>
+     ${FORM_SLOTS.map(sl => `<tr><td>${sl.label}</td><td><select class="inp" id="cf_${sl.key}">${fopts(cfSlot(sl))}</select></td></tr>`).join("")}
    </table>
    <h3 style="margin-top:16px">2 · Gráficos de la persona evaluada</h3>
    <p class="sm mut" style="margin:0 0 10px">La persona nunca ve opiniones individuales: solo el resumen final de su lead reviewer. Aquí se decide si además ve gráficos con las medias de sus compañeros.</p>
@@ -1936,11 +1949,8 @@ async function saveCycle(id){
   else { const { data, error } = await sb.from("cycles").insert(row).select().single(); if(error) return err(error,"No se pudo crear"); cid = data.id; }
   await sb.from("cycle_forms").delete().eq("cycle_id", cid);
   const rows = [];
-  const add = (role, team, v) => { if(v) rows.push({cycle_id:cid, role, team, form_id:v}); };
-  add("self",null,f.forms.self); add("lead",null,f.forms.lead);
-  add("self","deal",f.forms.self_deal); add("lead","deal",f.forms.self_deal);   // el Deal Team se autoevalúa (y su lead valora) con su propio cuestionario
-  add("peer","deal",f.forms.peer_deal); add("peer","operations",f.forms.peer_operations); add("peer","nest",f.forms.peer_nest);
-  add("peer",null,f.forms.peer_operations || f.forms.peer_deal || f.forms.peer_nest);   // quien no tenga equipo usa el de Operations
+  const add = (role, team, rteam, v) => { if(v) rows.push({cycle_id:cid, role, team, reviewer_team:rteam, form_id:v}); };
+  for(const sl of FORM_SLOTS){ const v = f.forms[sl.key]; if(!v) continue; if(sl.role === 'selflead'){ add("self", sl.team, null, v); add("lead", sl.team, null, v); } else add(sl.role, sl.team, sl.rteam || null, v); }
   if(rows.length){ const { error } = await sb.from("cycle_forms").insert(rows); if(error) return err(error,"Cuestionarios del ciclo"); }
   closeModal(); toast("Ciclo guardado"); await loadCatalog(); render();
 }
@@ -1954,9 +1964,9 @@ async function setCycleStatus(id, status){
 }
 
 /* ----- Asignaciones ----- */
-function roleForm(c, role, reviewee){ const f = formFor(c, role, reviewee.team); return f ? f.id : null; }
+function roleForm(c, role, reviewee, reviewer){ const f = formFor(c, role, reviewee.team, reviewer ? reviewer.team : null); return f ? f.id : null; }
 async function addAssign(cycleId, revieweeId, reviewerId, role){
-  const c = byId(CYCLES,cycleId), rv = person(revieweeId); const fid = roleForm(c, role, rv);
+  const c = byId(CYCLES,cycleId), rv = person(revieweeId); const fid = roleForm(c, role, rv, person(reviewerId));
   if(!fid) return toast(`El ciclo no tiene formulario para «${ROLE_LABEL[role]}»`, true);
   const { error } = await sb.from("assignments").upsert({ cycle_id:cycleId, reviewee_id:revieweeId, reviewer_id:reviewerId, role, form_id:fid }, { onConflict:"cycle_id,reviewee_id,reviewer_id,role", ignoreDuplicates:true });
   if(error) return err(error,"No se pudo asignar"); render();
@@ -1974,9 +1984,11 @@ function pickPeers(cycleId, revieweeId){
 }
 async function addPeers(cycleId, revieweeId){
   const ids = [...document.querySelectorAll("#pp input:checked")].map(x=>x.value); closeModal();
-  const c = byId(CYCLES,cycleId), rv = person(revieweeId); const fid = roleForm(c,"peer",rv); if(!fid) return toast("El ciclo no tiene formulario de compañeros para este equipo", true);
+  const c = byId(CYCLES,cycleId), rv = person(revieweeId);
   if(!ids.length) return;
-  const { error } = await sb.from("assignments").upsert(ids.map(r=>({cycle_id:cycleId, reviewee_id:revieweeId, reviewer_id:r, role:"peer", form_id:fid})), { onConflict:"cycle_id,reviewee_id,reviewer_id,role", ignoreDuplicates:true });
+  const rows = ids.map(r => ({cycle_id:cycleId, reviewee_id:revieweeId, reviewer_id:r, role:"peer", form_id:roleForm(c,"peer",rv,person(r))}));
+  if(rows.some(r => !r.form_id)) return toast("El ciclo no tiene cuestionario de compañeros para alguna de estas parejas de equipos", true);
+  const { error } = await sb.from("assignments").upsert(rows, { onConflict:"cycle_id,reviewee_id,reviewer_id,role", ignoreDuplicates:true });
   if(error) return err(error,"No se pudieron asignar"); toast(`${ids.length} compañero(s) añadidos`); render();
 }
 async function prefillSelf(cycleId){
@@ -1991,10 +2003,9 @@ async function prefill360(cycleId){
   for(const rv of act){
     if(!isEvaluated(rv)) continue;
     const sf = roleForm(c,"self",rv); if(sf) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:rv.id, role:"self", form_id:sf});
-    const pf = roleForm(c,"peer",rv); if(!pf) continue;
     const equity = r => r.is_partner && !isEvaluated(r);   // equity partners: evalúan a todo el mundo, a ellos nadie
     const reviewers = act.filter(r => r.id!==rv.id && (equity(r) || (rv.team==='deal' ? ['deal','operations'].includes(r.team) : rv.team==='operations' ? true : rv.team==='nest' ? ['nest','operations'].includes(r.team) : false)));
-    for(const r of reviewers) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:r.id, role:"peer", form_id:pf});
+    for(const r of reviewers){ const pf = roleForm(c,"peer",rv,r); if(pf) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:r.id, role:"peer", form_id:pf}); }
   }
   if(!rows.length) return toast("Faltan formularios en el ciclo", true);
   window.PENDING_ROWS = rows;
@@ -2029,7 +2040,7 @@ async function applyBulkLeads(cycleId){
   const rows = [], toDelete = [];
   for(const rv of PEOPLE.filter(p=>p.active && isEvaluated(p))){
     const lead = picks[rv.team]; if(!lead || lead === rv.id) continue;
-    const fid = roleForm(c, "lead", rv); if(!fid){ toast("El ciclo no tiene cuestionario de lead reviewer", true); return; }
+    const fid = roleForm(c, "lead", rv, person(lead)); if(!fid){ toast("El ciclo no tiene cuestionario de lead reviewer", true); return; }
     const cur = (existing||[]).find(a => a.reviewee_id === rv.id);
     if(cur){ if(!over || cur.status === "submitted") continue; toDelete.push(cur.id); }
     rows.push({ cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:lead, role:"lead", form_id:fid });
@@ -2101,9 +2112,8 @@ async function savePeers(){
   const cur = (window.ASG_CACHE||[]).filter(a => a.cycle_id===cycleId && a.reviewee_id===revieweeId && a.role==='peer');
   const toDelete = cur.filter(a => !checked.has(a.reviewer_id) && a.status==='pending').map(a => a.id);
   const existing = new Set(cur.map(a => a.reviewer_id));
-  const fid = roleForm(c, "peer", rv);
-  const toAdd = [...checked].filter(id => !existing.has(id)).map(id => ({ cycle_id:cycleId, reviewee_id:revieweeId, reviewer_id:id, role:"peer", form_id:fid }));
-  if(toAdd.length && !fid) return toast("El ciclo no tiene cuestionario de compañeros para este equipo", true);
+  const toAdd = [...checked].filter(id => !existing.has(id)).map(id => ({ cycle_id:cycleId, reviewee_id:revieweeId, reviewer_id:id, role:"peer", form_id:roleForm(c, "peer", rv, person(id)) }));
+  if(toAdd.some(r => !r.form_id)) return toast("El ciclo no tiene cuestionario de compañeros para alguna de estas parejas de equipos", true);
   closeModal(); progress(true);
   if(toDelete.length){ const { error } = await sb.from("assignments").delete().in("id", toDelete); if(error){ progress(false); return err(error,"Compañeros"); } }
   if(toAdd.length){ const { error } = await sb.from("assignments").upsert(toAdd, { onConflict:"cycle_id,reviewee_id,reviewer_id,role", ignoreDuplicates:true }); if(error){ progress(false); return err(error,"Compañeros"); } }
