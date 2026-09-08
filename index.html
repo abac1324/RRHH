@@ -631,11 +631,13 @@ function questionsFor(form, role){
   return out;
 }
 // Cuestionario de un ciclo para un papel: el más específico que haya (equipo del evaluado + equipo del evaluador → equipo del evaluado → general)
+// El lead reviewer responde el mismo cuestionario que un compañero de su pareja de equipos (Hugo, 08-sep-2026); su resumen final va aparte, en la pestaña Lead Reviewer
 function formFor(cycle, role, team, reviewerTeam){
   const cf = (cycle.cycle_forms||[]);
-  const hit = (reviewerTeam && cf.find(x => x.role===role && x.team===team && x.reviewer_team===reviewerTeam))
-    || cf.find(x => x.role===role && x.team===team && !x.reviewer_team)
-    || cf.find(x => x.role===role && !x.team && !x.reviewer_team);
+  const pick = r => (reviewerTeam && cf.find(x => x.role===r && x.team===team && x.reviewer_team===reviewerTeam))
+    || cf.find(x => x.role===r && x.team===team && !x.reviewer_team)
+    || cf.find(x => x.role===r && !x.team && !x.reviewer_team);
+  const hit = pick(role) || (role === 'lead' ? pick('peer') : null);
   return hit ? byId(FORMS, hit.form_id) : null;
 }
 
@@ -1841,9 +1843,10 @@ async function mailSendNow(quiet){
 /* ----- Ciclo: crear / editar ----- */
 // Huecos de cuestionario de un ciclo: quién rellena qué. «selflead» = autoevaluación y valoración del lead con el mismo cuestionario.
 const FORM_SLOTS = [
-  { key:"self_deal",       role:"selflead", team:"deal",       label:"<b>Autoevaluación y lead reviewer</b> · <b>Deal Team</b>" },
-  { key:"self_operations", role:"selflead", team:"operations", label:"<b>Autoevaluación y lead reviewer</b> · <b>Operations</b>" },
-  { key:"self_nest",       role:"selflead", team:"nest",       label:"<b>Autoevaluación y lead reviewer</b> · <b>Nest</b>" },
+  { key:"self_deal",       role:"self", team:"deal",       label:"<b>Autoevaluación</b> · <b>Deal Team</b>" },
+  { key:"self_operations", role:"self", team:"operations", label:"<b>Autoevaluación</b> · <b>Operations</b>" },
+  { key:"self_nest",       role:"self", team:"nest",       label:"<b>Autoevaluación</b> · <b>Nest</b>" },
+  // compañeros y lead reviewer (el lead responde el mismo cuestionario que un compañero de su equipo)
   { key:"peer_deal_deal",             role:"peer", team:"deal",       rteam:"deal",       label:"<b>Deal Team</b> evaluado por <b>Deal Team</b>" },
   { key:"peer_deal_operations",       role:"peer", team:"deal",       rteam:"operations", label:"<b>Deal Team</b> evaluado por <b>Operations</b>" },
   { key:"peer_nest_nest",             role:"peer", team:"nest",       rteam:"nest",       label:"<b>Nest</b> evaluado por <b>Nest</b>" },
@@ -1907,7 +1910,7 @@ function editCycle(id){
   const c = id ? byId(CYCLES,id) : { name:"", kind:"360", period_label:"", opens_at:"", closes_at:"", status:"draft", visibility:{peers_attributed:false,reviewee_sees_peers:"aggregate",reviewee_sees_lead:true,anon_threshold:0,lead_after_peers:false,peers_see_self:false}, cycle_forms:[] };
   const v = c.visibility||{}; const cf = r => ((c.cycle_forms||[]).find(x=>x.role===r&&!x.team)||{}).form_id||"";
   const cfTeam = (r,t) => ((c.cycle_forms||[]).find(x=>x.role===r&&x.team===t)||{}).form_id || cf(r);
-  const cfSlot = sl => ((c.cycle_forms||[]).find(x => x.role === (sl.role === 'selflead' ? 'self' : sl.role) && (x.team||null) === (sl.team||null) && (x.reviewer_team||null) === (sl.rteam||null)) || {}).form_id || "";
+  const cfSlot = sl => ((c.cycle_forms||[]).find(x => x.role === sl.role && (x.team||null) === (sl.team||null) && (x.reviewer_team||null) === (sl.rteam||null)) || {}).form_id || "";
   const fopts = sel => `<option value="">—</option>${FORMS.map(f=>`<option value="${f.id}" ${f.id===sel?"selected":""}>${esc(fname(f.id))}</option>`).join("")}`;
   const mode = v.reviewee_sees_peers || "aggregate";
   const opt = (val, ic, title, desc) => `<label class="opt ${mode===val?'on':''}"><input type="radio" name="vmode" value="${val}" ${mode===val?"checked":""}><div class="ot"><i class="ti ti-${ic}"></i>${title}</div><div class="od">${desc}</div></label>`;
@@ -1950,7 +1953,7 @@ async function saveCycle(id){
   await sb.from("cycle_forms").delete().eq("cycle_id", cid);
   const rows = [];
   const add = (role, team, rteam, v) => { if(v) rows.push({cycle_id:cid, role, team, reviewer_team:rteam, form_id:v}); };
-  for(const sl of FORM_SLOTS){ const v = f.forms[sl.key]; if(!v) continue; if(sl.role === 'selflead'){ add("self", sl.team, null, v); add("lead", sl.team, null, v); } else add(sl.role, sl.team, sl.rteam || null, v); }
+  for(const sl of FORM_SLOTS){ const v = f.forms[sl.key]; if(v) add(sl.role, sl.team, sl.rteam || null, v); }
   if(rows.length){ const { error } = await sb.from("cycle_forms").insert(rows); if(error) return err(error,"Cuestionarios del ciclo"); }
   closeModal(); toast("Ciclo guardado"); await loadCatalog(); render();
 }
