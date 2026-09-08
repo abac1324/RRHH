@@ -92,6 +92,7 @@ a{color:var(--navy)}
 .kpi .l{font-size:11.5px;color:var(--muted);font-weight:500}
 .kpi .d{font-size:11px;color:var(--ok);font-weight:600}
 .kpi .d.neg{color:var(--bad)}
+.acts{display:flex;flex-direction:column;gap:12px}.acts>div{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.acts .btn{min-width:270px;justify-content:flex-start}.acts .xs{flex:1;min-width:180px}
 .avatar{width:34px;height:34px;border-radius:50%;background:var(--navy);color:#fff;display:inline-grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0;letter-spacing:.02em}
 .avatar.lg{width:64px;height:64px;font-size:21px}
 .avatar.sm{width:26px;height:26px;font-size:10px}
@@ -1473,32 +1474,42 @@ const ADMIN = {
   },
   /* ----- Ajustes ----- */
   async settings(){
-    return `<div class="grid g2"><div class="card"><h3>Modo sin login</h3>
-      <p class="sm">Mientras esté <b>activado</b>, la versión de construcción de la app permite entrar como cualquier persona sin contraseña. <b>Debe estar desactivado siempre que haya respuestas reales; ábrelo solo para una prueba puntual y vuelve a cerrarlo.</b></p>
-      <div class="row"><span class="pill ${SETTINGS.dev_mode?'warn':'ok'}">${SETTINGS.dev_mode?'ACTIVADO':'desactivado'}</span><button class="btn sm" onclick="toggleDev(${!SETTINGS.dev_mode})">${SETTINGS.dev_mode?'Desactivar':'Activar'}</button></div>
-      <div class="hint">${esc(SETTINGS.note||"")}</div></div>
-    <div class="card"><h3>Formularios cargados</h3><table><tr><th>Código</th><th>Nombre</th><th class="num">Secciones</th><th class="num">Preguntas</th></tr>${FORMS.map(f=>`<tr><td class="b">${esc(f.code)}</td><td class="sm">${esc(f.name)}</td><td class="num">${f.form_sections.length}</td><td class="num">${f.form_sections.reduce((a,s)=>a+s.questions.length,0)}</td></tr>`).join("")}</table><div class="hint">Los formularios se cargan con los SQL de «3 - Base de datos». Aquí solo se consultan.</div></div>
-    ${await mailCard()}</div>`;
+    const [{ data:q, error }, { data:sv }] = await Promise.all([
+      sb.rpc("mail_queue_list", { p_limit:30 }),
+      sb.from("schema_version").select("file, applied_at").order("applied_at", { ascending:false }).limit(1),
+    ]);
+    const on = !!SETTINGS.mail_enabled, days = (SETTINGS.mail_reminder_days || [7,3,1]).join(", ");
+    const rows = q || [], pend = rows.filter(x => !x.sent_at && x.attempts < 5).length, sent = rows.filter(x => x.sent_at).length, bad = rows.filter(x => !x.sent_at && x.attempts >= 5).length;
+    const lastSql = sv && sv[0] ? sv[0] : null;
+    const kpis = `<div class="grid g4" style="margin-bottom:18px">
+      <div class="card kpi"><div class="l">Correos de aviso</div><div class="v" style="font-size:20px">${on ? "Activados" : "Desactivados"}</div><div class="d ${on?'':'neg'}">${on ? esc(SETTINGS.mail_from || "sin buzón remitente") : "los avisos se encolan, no salen"}</div></div>
+      <div class="card kpi"><div class="l">Pendientes de envío</div><div class="v">${error ? "—" : pend}</div><div class="d ${bad?'neg':''}">${bad ? `${bad} con error` : sent ? `${sent} enviados en los últimos 30` : "nada enviado todavía"}</div></div>
+      <div class="card kpi"><div class="l">Personas activas</div><div class="v">${PEOPLE.filter(p=>p.active).length}</div><div class="d" style="color:var(--muted)">${PEOPLE.filter(p=>p.active&&isEvaluated(p)).length} se evalúan · ${CYCLES.length} ciclo${CYCLES.length===1?'':'s'}</div></div>
+      <div class="card kpi"><div class="l">Base de datos</div><div class="v" style="font-size:16px;word-break:break-all">${lastSql ? esc(lastSql.file) : "—"}</div><div class="d" style="color:var(--muted)">${lastSql ? "último SQL · " + fmtD(lastSql.applied_at) : "sin control de versiones"}</div></div></div>`;
+    if(error) return kpis + `<div class="card"><h3><i class="ti ti-mail"></i> Correos de aviso</h3><div class="alert warn"><i class="ti ti-alert-triangle"></i> Falta ejecutar <b>11_correos.sql</b> en la base de datos (${esc(error.message)}).</div></div>`;
+    return kpis + `<div class="grid g2" style="margin-bottom:18px">
+      <div class="card"><h3><i class="ti ti-mail"></i> Correos de aviso <span class="r">${on ? '<span class="pill ok">activados</span>' : '<span class="pill gray">desactivados</span>'}</span></h3>
+        <p class="sm" style="margin-top:0">Cada persona recibe un correo cuando <b>empieza</b> un ciclo, cuando <b>quedan pocos días</b>, el <b>día del cierre</b>, cuando el ciclo <b>ha cerrado</b> y, al instante, cuando su lead reviewer pulsa <b>«Mostrar resultados»</b>. Salen del buzón de abajo con Microsoft 365; dentro de la app no se muestra ningún aviso.</p>
+        <div class="two"><div><label class="xs mut" style="display:block;margin-bottom:4px">Buzón remitente</label><input class="inp" id="ml_from" placeholder="enquiries@abaccapital.com" value="${esc(SETTINGS.mail_from||"")}"></div>
+          <div><label class="xs mut" style="display:block;margin-bottom:4px">Recordatorios: días antes del cierre</label><input class="inp" id="ml_days" value="${esc(days)}" placeholder="7, 3, 1"></div></div>
+        <div class="chk" style="margin-top:12px"><input type="checkbox" id="ml_on" ${on?"checked":""}><label>Enviar correos</label></div>
+        <div class="row" style="gap:8px;margin-top:14px"><button class="btn pri" onclick="mailSave()"><i class="ti ti-check"></i> Guardar</button></div></div>
+      <div class="card"><h3><i class="ti ti-bolt"></i> Acciones</h3>
+        <div class="acts">
+          <div><button class="btn" onclick="mailTest()"><i class="ti ti-send"></i> Enviarme un correo de prueba</button><span class="xs mut">Llega a tu propio correo con el diseño real. Sirve para comprobar que el buzón y el permiso de Microsoft funcionan.</span></div>
+          <div><button class="btn" onclick="mailSendNow()"><i class="ti ti-mailbox"></i> Enviar pendientes ahora${pend?` (${pend})`:""}</button><span class="xs mut">Fuerza el envío de lo que quede en la cola, por ejemplo tras arreglar un permiso.</span></div>
+          <div><button class="btn" onclick="mailRunDaily()"><i class="ti ti-calendar-check"></i> Comprobar recordatorios de hoy</button><span class="xs mut">Hace a mano lo que el proceso diario hace cada laborable a las 08:30: recordatorios y «hoy cierra».</span></div>
+        </div></div></div>
+    <div class="card" style="margin-bottom:18px"><h3><i class="ti ti-history"></i> Últimos correos <span class="r xs mut" style="text-transform:none;letter-spacing:0">${rows.length ? `${rows.length} más recientes` : ""}</span></h3>
+      ${rows.length ? `<table><tr><th>Cuándo</th><th>Tipo</th><th>Ciclo</th><th>Para</th><th>Asunto</th><th>Estado</th></tr>${rows.map(x=>`<tr><td class="xs">${fmtDT(x.created_at)}</td><td><span class="pill ${x.kind==='test'?'gray':'pur'}">${MAIL_KIND[x.kind]||esc(x.kind)}</span></td><td class="xs">${esc(x.cycle_name||"—")}</td><td class="xs">${esc(x.to_email)}</td><td class="sm">${esc(x.subject)}</td><td>${x.sent_at?`<span class="pill ok">enviado ${fmtDT(x.sent_at)}</span>`:x.attempts>=5?`<span class="pill warn" title="${esc(x.last_error||"")}">fallido</span>`:x.last_error?`<span class="pill warn" title="${esc(x.last_error)}">reintentando (${x.attempts}) · ${esc((x.last_error||"").slice(0,60))}…</span>`:'<span class="pill gray">pendiente</span>'}</td></tr>`).join("")}</table>`
+        : `<div class="emptystate">Todavía no se ha encolado ningún correo.</div>`}</div>
+    <div class="card"><h3><i class="ti ti-forms"></i> Cuestionarios cargados <span class="r xs mut" style="text-transform:none;letter-spacing:0">se cargan con los SQL de «3 - Base de datos»; aquí solo se consultan</span></h3>
+      <table><tr><th>Código</th><th>Nombre</th><th class="num">Secciones</th><th class="num">Preguntas</th></tr>${FORMS.map(f=>`<tr><td class="b">${esc(f.code)}</td><td class="sm">${esc(f.name)}</td><td class="num">${f.form_sections.length}</td><td class="num">${f.form_sections.reduce((a,s)=>a+s.questions.length,0)}</td></tr>`).join("")}</table></div>`;
   },
 };
 
 /* ----- Correos de aviso (SQL 11 + Edge Function enviar-correos) ----- */
 const MAIL_KIND = { cycle_open:"Hoy empieza", reminder:"Recordatorio", closes_today:"Hoy cierra", cycle_closed:"Ha cerrado", results_ready:"Resultados publicados", test:"Prueba" };
-async function mailCard(){
-  const { data:q, error } = await sb.rpc("mail_queue_list", { p_limit:30 });
-  if(error) return `<div class="card" style="grid-column:1/-1"><h3><i class="ti ti-mail"></i> Correos de aviso</h3><div class="alert warn"><i class="ti ti-alert-triangle"></i> Falta ejecutar <b>11_correos.sql</b> en la base de datos (${esc(error.message)}).</div></div>`;
-  const on = !!SETTINGS.mail_enabled, days = (SETTINGS.mail_reminder_days || [7,3,1]).join(", ");
-  const pend = (q||[]).filter(x => !x.sent_at && x.attempts < 5).length;
-  return `<div class="card" style="grid-column:1/-1"><h3><i class="ti ti-mail"></i> Correos de aviso <span class="r">${on ? '<span class="pill ok">activados</span>' : '<span class="pill gray">desactivados</span>'}</span></h3>
-    <p class="sm">Cada persona recibe un correo cuando <b>empieza</b> un ciclo, cuando <b>quedan pocos días</b>, el <b>día del cierre</b>, cuando el ciclo <b>ha cerrado</b> y cuando su lead reviewer <b>publica sus resultados</b>. Los envía el buzón de abajo con Microsoft 365; dentro de la app no se muestra ningún aviso.</p>
-    <div class="two"><div><label class="xs mut" style="display:block;margin-bottom:4px">Buzón remitente</label><input class="inp" id="ml_from" placeholder="rrhh@abaccapital.com" value="${esc(SETTINGS.mail_from||"")}"></div>
-      <div><label class="xs mut" style="display:block;margin-bottom:4px">Recordatorios: días antes del cierre</label><input class="inp" id="ml_days" value="${esc(days)}" placeholder="7, 3, 1"></div></div>
-    <div class="chk" style="margin-top:10px"><input type="checkbox" id="ml_on" ${on?"checked":""}><label>Enviar correos <span class="xs mut">(desactivado, los avisos se encolan pero no salen)</span></label></div>
-    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn pri" onclick="mailSave()"><i class="ti ti-check"></i> Guardar</button><button class="btn" onclick="mailTest()"><i class="ti ti-send"></i> Enviarme un correo de prueba</button><button class="btn" onclick="mailRunDaily()"><i class="ti ti-calendar-check"></i> Comprobar recordatorios de hoy</button><button class="btn" onclick="mailSendNow()"><i class="ti ti-mailbox"></i> Enviar pendientes ahora${pend?` (${pend})`:""}</button></div>
-    <h3 style="margin-top:18px">Últimos correos</h3>
-    ${(q||[]).length ? `<table><tr><th>Cuándo</th><th>Tipo</th><th>Ciclo</th><th>Para</th><th>Asunto</th><th>Estado</th></tr>${q.map(x=>`<tr><td class="xs">${fmtDT(x.created_at)}</td><td><span class="pill ${x.kind==='test'?'gray':'pur'}">${MAIL_KIND[x.kind]||esc(x.kind)}</span></td><td class="xs">${esc(x.cycle_name||"—")}</td><td class="xs">${esc(x.to_email)}</td><td class="sm">${esc(x.subject)}</td><td>${x.sent_at?`<span class="pill ok">enviado ${fmtDT(x.sent_at)}</span>`:x.attempts>=5?`<span class="pill warn" title="${esc(x.last_error||"")}">fallido</span>`:x.last_error?`<span class="pill warn" title="${esc(x.last_error)}">reintentando (${x.attempts})</span>`:'<span class="pill gray">pendiente</span>'}</td></tr>`).join("")}</table>` : `<div class="emptystate">Todavía no se ha encolado ningún correo.</div>`}
-    <div class="hint">Los correos se envían solos al encolarse (webhook de la base de datos) y los recordatorios se calculan cada día laborable a las 08:30. «Enviar pendientes ahora» fuerza el envío de lo que quede; «Comprobar recordatorios de hoy» hace a mano lo que hace el proceso diario.</div></div>`;
-}
 async function mailSave(){
   const g = x => document.getElementById(x);
   const days = g("ml_days").value.split(/[\s,;]+/).map(Number).filter(n => Number.isInteger(n) && n > 0);
