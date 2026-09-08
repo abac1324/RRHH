@@ -391,6 +391,11 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 /* ---------- Mis resultados: resumen en recuadros ---------- */
 .fr-read{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-bottom:18px}
 .fr-read .full{grid-column:1/-1}
+.fr-read.one{grid-template-columns:1fr}
+.fr-edit label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:5px}
+.fr-edit textarea{min-height:96px;width:100%}
+.fr-box.scoring{margin-bottom:18px;background:#fff}
+.fr-box.scoring > .k{margin-bottom:12px}
 .fr-box{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--cell)}
 .fr-box .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:6px}
 .fr-box .v{font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:var(--text)}
@@ -820,30 +825,9 @@ PAGES.form = async function(id){
   document.getElementById("title").textContent = `${esc(cycle.name)} · ${a.role==='self' ? "Mi autoevaluación" : fullName(a.reviewee)}`;
   const groups = questionsFor(form, a.role);
 
-  // Contexto: autoevaluación del evaluado (para lead, y para compañeros si el ciclo lo permite)
-  let selfBlock = "";
-  if(a.role === "lead" && cycle.kind !== "cascade"){   // en junio el lead responde sin ver la autoevaluación (la ve después, en la ficha)
-    const { data:selfRows } = await sb.from("assignments").select("id,status,form_id").eq("cycle_id", a.cycle_id).eq("reviewee_id", a.reviewee_id).eq("role","self").limit(1); const selfA = selfRows && selfRows[0];
-    if(selfA && selfA.status === "submitted"){
-      const { data:sAns } = await sb.from("answers").select("*").eq("assignment_id", selfA.id);
-      const sf = byId(FORMS, selfA.form_id);
-      if(sAns && sAns.length) selfBlock = `<details class="card" style="margin-bottom:16px"><summary style="cursor:pointer;font-weight:700;color:var(--ink)"><i class="ti ti-user"></i> Autoevaluación de ${esc(fullName(a.reviewee))} (enviada)</summary><div style="margin-top:12px">${renderReadonly(sf, "self", sAns)}</div></details>`;
-    } else if(a.role === "lead") selfBlock = `<div class="alert info" style="margin-bottom:16px"><i class="ti ti-info-circle"></i> ${esc(fullName(a.reviewee))} todavía no ha enviado su autoevaluación.</div>`;
-  }
-  // Para el lead: respuestas de los compañeros ya enviadas
-  let peersBlock = "";
-  if(a.role === "lead" && cycle.kind !== "cascade"){
-    const { data:peers } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", a.cycle_id).eq("reviewee_id", a.reviewee_id).eq("role","peer");
-    if(peers && peers.length){
-      const done = peers.filter(p => p.status === "submitted");
-      let inner = `<div class="sm mut" style="margin-bottom:8px">${done.length} de ${peers.length} compañeros han enviado: ${peers.map(p=>`${esc(fullName(p.reviewer))} ${p.status==='submitted'?'<span class="y">●</span>':'<span style="color:#c9d2df">○</span>'}`).join(" · ")}</div>`;
-      if(done.length){
-        const { data:pAns } = await sb.from("answers").select("*").in("assignment_id", done.map(p=>p.id));
-        inner += done.map(p => `<details style="margin-top:8px"><summary style="cursor:pointer" class="b sm">${esc(fullName(p.reviewer))} · ${fmtD(p.submitted_at)}</summary><div style="margin-top:8px">${renderReadonly(byId(FORMS,p.form_id), "peer", (pAns||[]).filter(x=>x.assignment_id===p.id))}</div></details>`).join("");
-      }
-      peersBlock = `<details class="card" style="margin-bottom:16px" ${done.length?"open":""}><summary style="cursor:pointer;font-weight:700;color:var(--ink)"><i class="ti ti-users"></i> Lo que han dicho los compañeros</summary><div style="margin-top:12px">${inner}</div></details>`;
-    }
-  }
+  // El lead responde como un evaluador más: sin ver la autoevaluación ni lo de los compañeros (Hugo, 08-sep-2026). Lo lee después, en la ficha y en el Excel.
+  // En la autoevaluación, antes de empezar: los objetivos que le pusieron el año anterior
+  const objBlock = a.role === "self" ? await prevObjectivesBlock(a.reviewee_id, cycle, mine ? "me" : "other") : "";
 
   let picksBlock = "";
   if(a.role === "self" && (cycle.visibility||{}).reviewee_picks && mine){
@@ -875,7 +859,7 @@ PAGES.form = async function(id){
       <button class="btn" onclick="go('tasks')">Volver</button>
       <button class="btn pri" onclick="submitCurrent()"><i class="ti ti-check"></i> Guardar respuesta final</button></div>`
     : `<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" onclick="history.length>1?go('tasks'):go('tasks')">Volver</button></div>`;
-  return head + picksBlock + selfBlock + peersBlock + body + foot;
+  return head + objBlock + picksBlock + body + foot;
 };
 
 async function saveReviewerPicks(cycleId){
@@ -946,6 +930,16 @@ async function doSubmit(){
 
 /* ---------- MIS RESULTADOS (lo publicado sobre mí) ---------- */
 // Construye la vista de resultados de una persona: ciclo actual + el anterior del mismo tipo para comparar
+// Objetivos que le pusieron en el último diciembre anterior al ciclo (autoevaluación, ficha del lead y Mis resultados)
+const prevObjHTML = (c, fr, who) => `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objetivos que ${who === 'me' ? "te pusieron" : "le pusieron"} en ${esc(c.name)} <span class="pill gray" style="margin-left:auto">${fr.objectives_year||""}</span></div><div class="v">${esc(fr.objectives)}</div></div>`;
+async function prevObjectivesBlock(personId, cycle, who){
+  const { data:frs } = await sb.from("final_reviews").select("cycle_id,objectives,objectives_year,status").eq("reviewee_id", personId).eq("status", "sent");
+  if(!frs || !frs.length) return "";
+  const before = cycle.kind === '360' ? (x => (x.opens_at||"") < (cycle.opens_at||"")) : (x => (x.opens_at||"") <= (cycle.opens_at||"9999"));
+  const decs = CYCLES.filter(x => x.kind === '360' && x.id !== cycle.id && before(x)).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
+  for(const dc of decs){ const fr = frs.find(f => f.cycle_id === dc.id && f.objectives); if(fr) return prevObjHTML(dc, fr, who); }
+  return "";
+}
 async function buildResultsView(personId, cycleId, fetchRows){
   const c = byId(CYCLES, cycleId); if(!c) return null;
   const { data:frs } = await sb.from("final_reviews").select("*").eq("reviewee_id", personId);
@@ -963,32 +957,39 @@ async function buildResultsView(personId, cycleId, fetchRows){
   }
   return { cur, prev, dec, personId };
 }
-function resultsHTML(view, who){
-  const { cur, prev, dec } = view; const { c, fr } = cur;
-  const box = (k, v, full) => `<div class="fr-box ${full?'full':''}"><div class="k">${k}</div><div class="v ${v?'':'empty'}">${v ? esc(v) : "—"}</div></div>`;
-  const tu = who === 'me';
+function resultsHTML(view, who, edit){
+  // who: 'me' (la persona) u 'other' (lead, socios, admin RRHH). edit: { fr, canEdit } cuando el lead escribe el resumen en la ficha
+  const { cur, prev, dec } = view; const { c } = cur; const fr = edit ? edit.fr : cur.fr;
+  const tu = who === 'me'; const canEdit = !!(edit && edit.canEdit); const written = !!fr || canEdit;
+  const f = k => (fr && fr[k]) || "";
+  // Recuadro a lo ancho: texto leído, o textarea si el lead está escribiendo
+  const box = (k, label, ph) => canEdit
+    ? `<div class="fr-edit"><label>${label}</label><textarea id="fr_${k}" placeholder="${ph||""}">${esc(f(k))}</textarea></div>`
+    : `<div class="fr-box full"><div class="k">${label}</div><div class="v ${f(k)?'':'empty'}">${f(k) ? esc(f(k)) : "—"}</div></div>`;
+  const notYet = tu ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : (canEdit ? "" : `<div class="hint" style="margin-bottom:14px">El lead reviewer todavía no ha escrito el resumen.</div>`);
   if(c.kind !== '360'){
-    // ---- Junio (Mid Term Feedback): solo el resumen del lead y los objetivos de diciembre. Sin gráficos. ----
-    const decBlock = dec ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objectives ${tu ? "que te pusieron" : "que le pusieron"} en ${esc(dec.c.name)} <span class="pill gray" style="margin-left:auto">${dec.fr.objectives_year||""}</span></div><div class="v">${esc(dec.fr.objectives)}</div></div>` : "";
-    return `${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Top 3 Achievements", fr.positives)}${box("Top 3 Areas of Development", fr.development)}</div>`
-                : (tu ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}${decBlock}`;
+    // ---- Junio (Mid Term Feedback): objetivos de diciembre arriba, luego el resumen del lead. Sin gráficos. ----
+    const decBlock = dec && dec.fr && dec.fr.objectives ? prevObjHTML(dec.c, dec.fr, who) : "";
+    return decBlock + (written ? `<div class="fr-read one">${box("summary", "Reviewer Summary", "Valoración global…")}${box("positives", "Top 3 Achievements", "Los tres logros principales…")}${box("development", "Top 3 Areas of Development", "Las tres áreas en las que crecer…")}</div>` : notYet);
   }
-  // ---- Diciembre (Performance Evaluation): como siempre, con la comparación con el año anterior ----
+  // ---- Diciembre (Performance Evaluation) ----
   const stats = scaleStats(cur.rows), pstats = prev ? scaleStats(prev.rows) : null;
   const hasScales = Object.keys(stats).some(k => k !== "_n"), hasPrev = !!(pstats && Object.keys(pstats).some(k => k !== "_n"));
-  const yr = fr && fr.objectives_year ? fr.objectives_year : (c.opens_at ? new Date(c.opens_at).getFullYear()+1 : "");
-  const prevObj = prev && prev.fr && prev.fr.objectives ? `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objetivos que ${tu ? "te pusieron" : "le pusieron"} en ${esc(prev.c.name)} <span class="pill gray" style="margin-left:auto">${prev.fr.objectives_year||""}</span></div><div class="v">${esc(prev.fr.objectives)}</div></div>` : "";
-  return `
-    ${fr ? `<div class="fr-read">${box("Reviewer Summary", fr.summary, true)}${box("Main Positives", fr.positives)}${box("Main Areas of Development", fr.development)}${box("Key Quotes from Reviewers", fr.quotes)}${box(`Objectives ${yr}`, fr.objectives)}</div>`
-         : (tu ? `<div class="hint" style="margin-bottom:14px">Tu lead reviewer todavía no ha enviado el resumen de este ciclo.</div>` : "")}
-    ${prevObj}
-    ${hasScales ? `<div class="res-sub">Puntuaciones</div><div class="radars" style="margin-bottom:18px">
+  const yearCur = c.opens_at ? new Date(c.opens_at).getFullYear() : "";
+  const yr = fr && fr.objectives_year ? fr.objectives_year : (yearCur ? yearCur + 1 : "");
+  const prevObj = prev && prev.fr && prev.fr.objectives ? prevObjHTML(prev.c, prev.fr, who) : "";
+  const scoring = hasScales ? `<div class="radars" style="margin-bottom:18px">
       <div class="radar"><h4>${esc(c.period_label||c.name)}</h4><div class="sub">Media ponderada, media aritmética y ${tu ? "tu" : "su"} autoevaluación · ${stats._n} opiniones</div><div class="box"><canvas id="rad_cur"></canvas></div></div>
       <div class="radar"><h4>${prev ? esc(prev.c.period_label||prev.c.name) : "Año anterior"}</h4>${hasPrev ? `<div class="sub">Las mismas tres líneas del año anterior · ${pstats._n} opiniones</div><div class="box"><canvas id="rad_prev"></canvas></div>` : `<div class="empty-mini">Todavía no hay una review anterior del mismo tipo con la que comparar.</div>`}</div></div>
       <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación · el porcentaje es sobre las personas que respondieron ese año</span></div>
       ${hasPrev ? `<div class="legend" style="margin:-4px 0 10px"><span><i style="background:#0e2150"></i>${esc(c.period_label||c.name)}</span><span><i style="background:#a9cdf4"></i>${esc(prev.c.period_label||prev.c.name)}</span></div>` : ""}
       <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">media ${(stats[k].sum/stats[k].n).toFixed(2)}${hasPrev && pstats[k] ? ` · año anterior ${(pstats[k].sum/pstats[k].n).toFixed(2)}` : ""}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
-      : (tu ? "" : `<div class="hint">Todavía no hay puntuaciones enviadas en este ciclo.</div>`)}`;
+    : `<div class="hint">Todavía no hay puntuaciones enviadas en este ciclo.</div>`;
+  const yearLabel = canEdit ? `Objectives <input type="text" id="fr_year" value="${yr}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px">` : `Objectives ${yr}`;
+  return `${prevObj}
+    ${written ? `<div class="fr-read one">${box("recap", "Objectives Recap", "Qué se ha cumplido de los objetivos del año anterior y qué no…")}</div>` : notYet}
+    <div class="fr-box full scoring"><div class="k">Performance ${yearCur} Summary Scoring</div>${scoring}</div>
+    ${written ? `<div class="fr-read one">${box("summary", "Reviewer Summary", "Valoración global…")}${box("positives", "Top Achievements", "Lo que mejor ha hecho…")}${box("development", "Top Developments", "Dónde tiene que crecer…")}${!canEdit && f("quotes") ? box("quotes", "Key Quotes from Reviewers") : ""}${box("objectives", yearLabel, "Objetivos para el año que viene…")}</div>` : ""}`;
 }
 PAGES.results = async function(){
   const { data:rel, error } = await sb.from("releases").select("*").eq("reviewee_id", ME.id).order("released_at", {ascending:false});
@@ -1193,12 +1194,21 @@ PAGES.review = async function(arg){
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('team')">Volver</button></div>`;
   }
   const view = await buildResultsView(p.id, c.id, async cid => { const { data, error:e } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); if(e){ console.warn(e.message); return []; } return data || []; });
-  window.RES_VIEW = view;
+  window.RES_VIEW = view; window.REV_FR = fr;
   const status = shown ? `<span class="pill ok">resultados mostrados a ${esc(p.first_name)} el ${fmtD(rel[0].released_at)}</span>` : (fr && fr.status==='sent' ? `<span class="pill warn">resumen enviado · resultados sin mostrar</span>` : `<span class="pill gray">sin mostrar</span>`);
   const showBtn = iAmLead && !shown && fr && fr.status==='sent' ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Mostrar resultados a ${esc(p.first_name)}</button>` : "";
+  const canEdit = iAmLead && !(fr && fr.status === 'sent');
+  const pending = []; if(!selfDone) pending.push("la autoevaluación"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} compañero${peersAll.length-peersDone.length>1?'s':''}`);
+  const frStatus = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
   return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>${showBtn}`) +
-    `${fr && fr.status === 'sent' ? "" : finalReviewCard(c, p, fr, iAmLead, peersAll.length, peersDone.length, selfDone)}
-    <div class="card">${resultsHTML(view, 'other')}</div>
+    `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
+    ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Lee primero los objetivos del año anterior y las puntuaciones; el Excel tiene todas las respuestas juntas.</div>`) : ""}
+    ${resultsHTML(view, 'other', { fr, canEdit })}
+    ${canEdit ? `<div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Última edición ${fmtDT(fr.updated_at)}`:""}</span>
+      <button class="btn" onclick="saveFinalReview(false)"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
+      <button class="btn pri" onclick="saveFinalReview(true)"><i class="ti ti-send"></i> Enviar el resumen</button></div>
+    <div class="hint" style="margin-top:10px"><i class="ti ti-eye-off"></i> Enviar el resumen lo deja guardado en la ficha. ${esc(p.first_name)} no verá nada hasta que pulses «Mostrar resultados».</div>` : ""}
+    </div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${canSeeAll()?'partners':'team'}')">Volver</button></div>`;
 };
 AFTER.review = async function(){ drawResults(window.RES_VIEW); };
@@ -1312,40 +1322,9 @@ async function exportCycleExcel(cycleId, revieweeId){
   toast(`Excel: ${built.people} persona${built.people>1?'s':''}, ${built.answers} respuestas`);
 }
 /* ---------- Resumen final del lead reviewer ---------- */
-function finalReviewCard(c, p, fr, iAmLead, nPeers, nDone, selfDone){
-  const canEdit = iAmLead && !(fr && fr.status === 'sent');
-  const is360 = c.kind === '360';
-  const year = (c.opens_at ? new Date(c.opens_at).getFullYear() : new Date().getFullYear()) + 1;
-  const pending = [];
-  if(!selfDone) pending.push("la autoevaluación");
-  if(nDone < nPeers) pending.push(`${nPeers - nDone} compañero${nPeers-nDone>1?'s':''}`);
-  const status = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
-  const f = k => esc((fr && fr[k]) || "");
-  const fields = is360
-    ? [["summary","Reviewer Summary"],["positives","Main Positives"],["development","Main Areas of Development"],["quotes","Key Quotes from Reviewers"],["objectives",`Objectives ${fr&&fr.objectives_year?fr.objectives_year:year}`]]
-    : [["summary","Reviewer Summary"],["positives","Top 3 Achievements"],["development","Top 3 Areas of Development"]];
-  if(!canEdit){
-    if(!fr) return (iAmLead||canSeeAll()) ? `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}</span></h3><div class="mut sm">Todavía no se ha escrito.</div></div>` : "";
-    return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}${fr.lead_id?` · ${esc(fullName(person(fr.lead_id)))}`:""}</span></h3>
-      <div class="fr-view">${fields.map(([k,l])=>`<div class="blk"><div class="k">${l}</div><div class="v">${f(k)||'<span class="mut">—</span>'}</div></div>`).join("")}</div></div>`;
-  }
-  return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${status}</span></h3>
-    ${pending.length ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:12px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Usa «Excel con todas las respuestas» para leerlas juntas y escribe aquí el resumen.</div>`}
-    <div class="fr-grid">
-      <div class="full"><label>Reviewer Summary</label><textarea id="fr_summary" placeholder="Valoración global…">${f("summary")}</textarea></div>
-      <div><label>${is360 ? "Main Positives" : "Top 3 Achievements"}</label><textarea id="fr_positives" placeholder="${is360 ? "Lo que mejor ha hecho…" : "Los tres logros principales…"}">${f("positives")}</textarea></div>
-      <div><label>${is360 ? "Main Areas of Development" : "Top 3 Areas of Development"}</label><textarea id="fr_development" placeholder="${is360 ? "Dónde tiene que crecer…" : "Las tres áreas en las que crecer…"}">${f("development")}</textarea></div>
-      ${is360 ? `<div><label>Key Quotes from Reviewers</label><textarea id="fr_quotes" placeholder="Frases literales de los compañeros, sin nombres…">${f("quotes")}</textarea></div>
-      <div><label>Objectives <input type="text" id="fr_year" value="${fr&&fr.objectives_year?fr.objectives_year:year}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px"></label><textarea id="fr_objectives" placeholder="Objetivos para el año que viene…">${f("objectives")}</textarea></div>` : ""}
-    </div>
-    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Última edición ${fmtDT(fr.updated_at)}`:""}</span>
-      <button class="btn" onclick="saveFinalReview(false)"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
-      <button class="btn pri" onclick="saveFinalReview(true)"><i class="ti ti-send"></i> Enviar el resumen</button></div>
-    <div class="hint" style="margin-top:10px"><i class="ti ti-eye-off"></i> Enviar el resumen lo deja guardado en la ficha. ${esc(p.first_name)} no verá nada hasta que pulses «Mostrar resultados».</div></div>`;
-}
 async function saveFinalReview(send){
   const { c, p } = window.REV_CTX; const g = x => document.getElementById(x); const is360 = c.kind === '360';
-  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes: is360 && g("fr_quotes") ? (g("fr_quotes").value.trim()||null) : null,
+  const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, recap: is360 && g("fr_recap") ? (g("fr_recap").value.trim()||null) : null, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes: (window.REV_FR && window.REV_FR.quotes) || null,
     objectives: is360 && g("fr_objectives") ? (g("fr_objectives").value.trim()||null) : null, objectives_year: is360 && g("fr_year") ? (parseInt(g("fr_year").value)||null) : null, updated_at:new Date().toISOString() };
   if(send && !row.summary) return toast("Escribe al menos el Reviewer Summary antes de enviar", true);
   const { error } = await sb.from("final_reviews").upsert(row, { onConflict:"cycle_id,reviewee_id" });
