@@ -1031,68 +1031,175 @@ function loadScript(url, ready){
   if(ready()) return Promise.resolve();
   return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = url; el.onload = () => ready() ? ok() : ko(new Error("Librería no disponible")); el.onerror = () => ko(new Error("No se pudo cargar " + url)); document.head.appendChild(el); });
 }
-// PDF A4 a partir de un elemento de la página (html2canvas + jsPDF, bajo demanda), descargado como archivo. prepare(wrap): retoques sobre la copia
-async function pdfFromElement(source, filename, prepare){
-  if(!source) return;
-  toast("Generando el PDF…");
-  try{
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js", () => !!window.html2canvas);
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => !!(window.jspdf && window.jspdf.jsPDF));
-  }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
-  // Copia del contenido con los gráficos convertidos en imagen y sin botones
-  const clone = source.cloneNode(true);
-  clone.querySelectorAll("canvas").forEach((cv, i) => { const src = source.querySelectorAll("canvas")[i]; const img = document.createElement("img"); try{ img.src = src.toDataURL("image/png"); }catch(e){} img.style.cssText = "width:100%;height:auto;display:block"; cv.replaceWith(img); });
-  clone.querySelectorAll(".btn, .nopdf, button").forEach(b => b.remove());
-  clone.style.margin = "0";
-  // Página A4 con márgenes de 10 mm: 190 mm de ancho útil = 718 px CSS. El contenido se maqueta a ese ancho detrás de la app
-  // (fuera de pantalla el capturador lo deja en blanco; y el contenido va en flujo normal, porque posicionado lo mide con alto 0)
-  const MM_W = 190, MM_H = 275, PX_W = 718, PX_PER_MM = PX_W / MM_W, PAGE_PX = Math.floor(MM_H * PX_PER_MM);
-  const outer = document.createElement("div"); outer.style.cssText = `position:absolute;left:0;top:0;z-index:-1;width:${PX_W}px;background:#fff`;
-  const wrap = document.createElement("div"); wrap.id = "pdfwrap";
-  wrap.style.cssText = "width:100%;box-sizing:border-box;background:#fff;padding:4px 2px;font-family:Inter,Segoe UI,Arial,sans-serif;color:#1c2230";
-  wrap.innerHTML = `<div class="pdfhead" style="display:flex;align-items:center;gap:12px;margin-bottom:14px"><div style="font-weight:800;font-size:15px;color:#0e2150">Abac RRHH · Evaluaciones de desempeño</div><div style="margin-left:auto;font-size:12px;color:#5c6675">${esc(fullName(ME))} · ${new Date().toLocaleDateString("es-ES")}</div></div>`;
-  wrap.appendChild(clone); outer.appendChild(wrap); document.body.appendChild(outer);
-  if(prepare) prepare(wrap);
-  const st = document.createElement("style");
-  st.textContent = "#pdfwrap .card{box-shadow:none;border:1px solid #e3e7ee;margin:0 0 12px;padding:18px 20px} #pdfwrap .res-head{flex-wrap:wrap} #pdfwrap .dist{display:block} #pdfwrap .pdfrow{display:flex;gap:12px;margin-bottom:12px} #pdfwrap .pdfrow .d1{flex:1 1 0;min-width:0} #pdfwrap .pdfrow .d1.ph{border:0;background:transparent} #pdfwrap .radar .box,#pdfwrap .d1 .box{height:auto} #pdfwrap img{max-width:100%} #pdfwrap .q{page-break-inside:avoid}";
-  wrap.prepend(st);
-  try{
-    // esperar a que las imágenes de los gráficos estén decodificadas (si no, salen en blanco)
-    await new Promise(res => { const t0 = Date.now(); const tick = () => { const imgs = [...wrap.querySelectorAll("img")]; if(imgs.every(im => im.naturalWidth > 0) || Date.now() - t0 > 4000) res(); else setTimeout(tick, 50); }; tick(); });
-    await new Promise(r => setTimeout(r, 150));
-    const SCALE = 2;
-    const big = await html2canvas(wrap, { scale:SCALE, backgroundColor:"#ffffff", useCORS:true, logging:false });
-    // Cortes de página: nunca dentro de un bloque protegido; el corte sube hasta el borde superior del bloque que quedaría partido
-    const w0 = wrap.getBoundingClientRect(); const totalPx = w0.height;
-    const blocks = [...wrap.querySelectorAll(".pdfrow, .radars, .fr-read > div, .fr-read, .prev-obj, .res-head, .pdfhead, .q, .hd, h3, h4, h5")].map(el => { const r = el.getBoundingClientRect(); return { top: r.top - w0.top, bottom: r.bottom - w0.top }; }).filter(b => b.bottom - b.top < PAGE_PX * 0.9);
-    const cuts = []; let y = 0;
-    while(y + PAGE_PX < totalPx){ let cut = y + PAGE_PX; for(let k = 0; k < 6; k++){ const hit = blocks.find(b => b.top < cut - 2 && b.bottom > cut + 2); if(!hit) break; cut = hit.top - 6; } if(cut <= y + PAGE_PX * 0.35) cut = y + PAGE_PX; cuts.push(cut); y = cut; }
-    cuts.push(totalPx);
-    const { jsPDF } = window.jspdf; const pdf = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
-    let from = 0;
-    cuts.forEach((to, idx) => { const hPx = to - from; if(hPx <= 1) return; if(idx > 0) pdf.addPage();
-      const slice = document.createElement("canvas"); slice.width = big.width; slice.height = Math.round(hPx * SCALE);
-      const g = slice.getContext("2d"); g.fillStyle = "#ffffff"; g.fillRect(0, 0, slice.width, slice.height); g.drawImage(big, 0, Math.round(from * SCALE), big.width, slice.height, 0, 0, big.width, slice.height);
-      pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", 10, 10, MM_W, hPx / PX_PER_MM);
-      pdf.setFontSize(8); pdf.setTextColor(140); pdf.text(`${idx + 1} / ${cuts.length}`, 200, 291, { align:"right" });
-      from = to; });
-    const blob = pdf.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
-    toast(`PDF descargado (${cuts.length} página${cuts.length > 1 ? "s" : ""})`);
-  }catch(e){ err(e, "PDF"); }
-  finally{ outer.remove(); }
+/* ---------- PDF profesionales (jsPDF, bajo demanda): texto vectorial, gráficos como imagen a tamaño fijo, paginación controlada ---------- */
+const PDFK = { W:210, H:297, M:15, navy:[14,33,80], ink:[28,34,48], grey:[92,102,117], faint:[150,158,170], line:[217,222,231], soft:[242,245,250], teal:[14,154,171], orange:[232,134,46], red:[214,69,69], light:[169,205,244], white:[255,255,255] };
+// jsPDF usa la codificación WinAnsi: sustituimos lo que no tiene
+const pdfTxt = t => String(t == null ? "" : t).replace(/→/g, "->").replace(/–/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/ /g, " ").replace(/\r/g, "");
+async function pdfLoad(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => !!(window.jspdf && window.jspdf.jsPDF)); }
+// Escritor con cabecera, pie, saltos de página y bloques
+class PdfDoc {
+  constructor(title, subtitle){ const { jsPDF } = window.jspdf; this.d = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait", compress:true }); this.title = title; this.subtitle = subtitle; this.page = 0; this.y = 0; this.newPage(); }
+  get x(){ return PDFK.M; } get w(){ return PDFK.W - 2 * PDFK.M; } get bottom(){ return PDFK.H - 16; }
+  color(c){ this.d.setTextColor(c[0], c[1], c[2]); } fill(c){ this.d.setFillColor(c[0], c[1], c[2]); } stroke(c){ this.d.setDrawColor(c[0], c[1], c[2]); }
+  font(style, size){ this.d.setFont("helvetica", style || "normal"); this.d.setFontSize(size || 10); }
+  newPage(){ if(this.page > 0) this.d.addPage(); this.page++;
+    // franja de cabecera
+    this.fill(PDFK.navy); this.d.rect(0, 0, PDFK.W, 16, "F");
+    this.font("bold", 11); this.color(PDFK.white); this.d.text("ABAC", PDFK.M, 10.2);
+    this.font("normal", 8.5); this.d.text("RRHH  ·  Evaluaciones de desempeño", PDFK.M + 13, 10.2);
+    this.font("bold", 9.5); this.d.text(pdfTxt(this.title), PDFK.W - PDFK.M, 8.4, { align:"right" });
+    if(this.subtitle){ this.font("normal", 8); this.d.text(pdfTxt(this.subtitle), PDFK.W - PDFK.M, 12.8, { align:"right" }); }
+    this.y = 24; }
+  ensure(h){ if(this.y + h > this.bottom){ this.newPage(); return true; } return false; }
+  lineH(size){ return size * 0.3528 * 1.32; }
+  // título de persona / ciclo (bloque inicial)
+  head(name, line2, right1, right2, line3){
+    const rights = [right1, right2].filter(Boolean); this.font("normal", 8.5); const rw = Math.max(0, ...rights.map(t => this.d.getTextWidth(pdfTxt(t))));
+    this.font("bold", 16); this.color(PDFK.ink); this.d.text(this.d.splitTextToSize(pdfTxt(name), this.w - rw - 6)[0], this.x, this.y + 6);
+    this.font("normal", 9.5); this.color(PDFK.grey); if(line2) this.d.text(this.d.splitTextToSize(pdfTxt(line2), this.w - rw - 6)[0], this.x, this.y + 11.5);
+    this.font("normal", 8.5); rights.forEach((t, i) => this.d.text(pdfTxt(t), PDFK.W - PDFK.M, this.y + 6 + i * 5, { align:"right" }));
+    let h = 16; if(line3){ this.font("normal", 8); this.color(PDFK.faint); this.d.text(this.d.splitTextToSize(pdfTxt(line3), this.w)[0], this.x, this.y + 16); h = 20.5; }
+    this.y += h; this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, this.y, this.x + this.w, this.y); this.y += 6; }
+  // título de sección: versalitas grises con línea
+  section(text){ this.ensure(12); this.font("bold", 8); this.color(PDFK.grey); const t = pdfTxt(text).toUpperCase(); this.d.text(t, this.x, this.y + 3); const tw = this.d.getTextWidth(t); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x + tw + 3, this.y + 2, this.x + this.w, this.y + 2); this.y += 8; }
+  // líneas de texto con salto de página
+  lines(text, size, color, style, x, w, gap){ x = x == null ? this.x : x; w = w == null ? this.w : w; this.font(style || "normal", size); this.color(color || PDFK.ink);
+    const lh = this.lineH(size); const paras = pdfTxt(text).split("\n");
+    for(const p of paras){ const ls = p.trim() === "" ? [""] : this.d.splitTextToSize(p, w); for(const l of ls){ if(this.y + lh > this.bottom){ this.newPage(); this.font(style || "normal", size); this.color(color || PDFK.ink); } this.d.text(l, x, this.y + lh * 0.78); this.y += lh; } }
+    this.y += gap == null ? 1.5 : gap; }
+  // recuadro con etiqueta y texto (fondo suave). Si no cabe entero, sigue en la página siguiente
+  box(label, text, opts){ opts = opts || {}; const pad = 4; const size = opts.size || 9.5; const lh = this.lineH(size); const w = opts.w || this.w; const x = opts.x || this.x;
+    this.font("normal", size); const body = pdfTxt(text || "—"); const ls = body.split("\n").flatMap(p => p.trim() === "" ? [""] : this.d.splitTextToSize(p, w - 2 * pad));
+    const total = pad + 4.5 + ls.length * lh + pad; const fits = this.y + total <= this.bottom;
+    if(!fits && total < (this.bottom - 24)) this.newPage();
+    const drawBg = (y0, h) => { this.fill(opts.fill || PDFK.soft); this.stroke(opts.border || PDFK.line); this.d.setLineWidth(0.25); this.d.roundedRect(x, y0, w, h, 2, 2, "FD"); };
+    // fondo: si sigue cabiendo en la página lo pintamos entero; si no, por tramos
+    let y0 = this.y; let remain = ls.slice();
+    const first = Math.max(1, Math.floor((this.bottom - y0 - pad - 4.5 - pad) / lh));
+    let chunk = remain.splice(0, Math.min(remain.length, first));
+    drawBg(y0, pad + 4.5 + chunk.length * lh + pad);
+    this.font("bold", 7.5); this.color(PDFK.grey); this.d.text(pdfTxt(label).toUpperCase(), x + pad, y0 + pad + 2);
+    let yy = y0 + pad + 4.5; this.font("normal", size); this.color(text ? PDFK.ink : PDFK.faint);
+    for(const l of chunk){ this.d.text(l, x + pad, yy + lh * 0.78); yy += lh; }
+    this.y = yy + pad + 3;
+    while(remain.length){ this.newPage(); const n = Math.max(1, Math.floor((this.bottom - this.y - 2 * pad) / lh)); chunk = remain.splice(0, Math.min(remain.length, n)); drawBg(this.y, pad + chunk.length * lh + pad); yy = this.y + pad; this.font("normal", size); this.color(PDFK.ink); for(const l of chunk){ this.d.text(l, x + pad, yy + lh * 0.78); yy += lh; } this.y = yy + pad + 3; } }
+  image(url, x, y, w, h){ try{ this.d.addImage(url, "PNG", x, y, w, h, undefined, "FAST"); }catch(e){ console.warn("pdf image", e); } }
+  finish(filename){ const n = this.d.getNumberOfPages(); for(let i = 1; i <= n; i++){ this.d.setPage(i); this.font("normal", 7.5); this.color(PDFK.faint);
+      this.d.text("Abac RRHH  ·  Confidencial  ·  Uso interno  ·  Generado el " + new Date().toLocaleDateString("es-ES"), PDFK.M, PDFK.H - 8);
+      this.d.text(`${i} / ${n}`, PDFK.W - PDFK.M, PDFK.H - 8, { align:"right" }); }
+    const blob = this.d.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); return n; }
 }
-// Mis resultados / ficha: la ficha entera, con las barras por nota de dos en dos (cada pareja, un bloque que no se parte)
+// Gráfico Chart.js fuera de pantalla → imagen PNG nítida (3x)
+function chartImage(config, wPx, hPx){
+  const cv = document.createElement("canvas"); cv.width = wPx; cv.height = hPx; cv.style.width = wPx + "px"; cv.style.height = hPx + "px";
+  const holder = document.createElement("div"); holder.style.cssText = "position:absolute;left:-9999px;top:0;width:" + wPx + "px;height:" + hPx + "px"; holder.appendChild(cv); document.body.appendChild(holder);
+  const opts = Object.assign({}, config.options || {}, { responsive:false, animation:false, devicePixelRatio:3 });
+  const ch = new Chart(cv, Object.assign({}, config, { options: opts })); const url = cv.toDataURL("image/png"); ch.destroy(); holder.remove(); return url;
+}
+const radarPdfConfig = (labels, W, A, S) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds("Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:4 });
+  return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:4 }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:11 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:12, weight:"600" }, color:"#2b3240" } } },
+    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:10, usePointStyle:true, font:{ size:11 } } }, tooltip:{ enabled:false } } } }; };
+const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"anterior", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:3, maxBarThickness:22, categoryPercentage:0.7, barPercentage:0.9 });
+  datasets.push({ label:"actual", data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:3, maxBarThickness:22, categoryPercentage:0.7, barPercentage:0.9 });
+  const selfIdx = selfScore ? Math.round(selfScore) - 1 : -1;
+  return { type:"bar", data:{ labels:["1","2","3","4","5"], datasets }, plugins:[PCT_PLUGIN, SELF_PLUGIN], options:{ _self:selfScore, layout:{ padding:{ bottom:4, top:6 } }, plugins:{ legend:{ display:false }, tooltip:{ enabled:false } },
+    scales:{ x:{ grid:{ display:false }, ticks:{ font: t => ({ size:12, weight: t.index === selfIdx ? "700" : "400" }), color: t => t.index === selfIdx ? "#d64545" : "#5c6675", padding:4 } }, y:{ beginAtZero:true, grace:"25%", ticks:{ precision:0, font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#eef0f3" } } } } }; };
+
+// PDF de Mis resultados: la misma información de la pantalla, maquetada
 async function downloadResultsPDF(){
-  const card = document.getElementById("resCard"); if(!card) return;
-  await pdfFromElement(card, `${fullName(ME)} - ${view_title()}.pdf`, wrap => {
-    wrap.querySelectorAll(".radar .box, .dist .d1 .box").forEach(b => b.style.height = "auto");
-    wrap.querySelectorAll(".dist").forEach(d => { const items = [...d.children]; d.innerHTML = ""; for(let i = 0; i < items.length; i += 2){ const row = document.createElement("div"); row.className = "pdfrow"; row.appendChild(items[i]); if(items[i+1]) row.appendChild(items[i+1]); else { const ph = document.createElement("div"); ph.className = "d1 ph"; row.appendChild(ph); } d.appendChild(row); } });
-  });
+  const view = window.RES_VIEW; if(!view || !view.cur) return;
+  toast("Generando el PDF…");
+  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  try{
+    const { cur, prev, dec } = view; const c = cur.c; const fr = cur.fr; const p = person(view.personId) || ME; const tu = p.id === ME.id;
+    const lead = fr && fr.lead_id ? person(fr.lead_id) : null;
+    const pdf = new PdfDoc(c.name, c.period_label || "");
+    pdf.head(fullName(p), [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "), fr ? `Resumen de ${lead ? fullName(lead) : "lead reviewer"}` : "Resultados", fr && fr.sent_at ? `Enviado el ${fmtD(fr.sent_at)}` : "");
+    const objPrev = (pc, pfr) => { if(pfr && pfr.objectives) pdf.box(`Objetivos que ${tu ? "te" : "le"} pusieron en ${pc.name}${pfr.objectives_year ? " (" + pfr.objectives_year + ")" : ""}`, pfr.objectives, { fill:PDFK.white }); };
+    if(c.kind !== '360'){
+      if(dec && dec.fr) objPrev(dec.c, dec.fr);
+      pdf.section("Resumen del lead reviewer");
+      pdf.box("Reviewer Summary", fr && fr.summary); pdf.box("Top 3 Achievements", fr && fr.positives); pdf.box("Top 3 Areas of Development", fr && fr.development);
+    } else {
+      if(prev && prev.fr) objPrev(prev.c, prev.fr);
+      pdf.box("Objectives Recap", fr && fr.recap);
+      // ---- puntuaciones ----
+      const st = scaleStats(cur.rows), ps = prev ? scaleStats(prev.rows) : null;
+      const codes = Object.keys(st).filter(k => k !== "_n"); const hasPrev = !!(ps && Object.keys(ps).some(k => k !== "_n"));
+      const yearCur = c.opens_at ? new Date(c.opens_at).getFullYear() : "";
+      if(codes.length){
+        pdf.section(`Performance ${yearCur} Summary Scoring`);
+        const lab = k => st[k].text.replace(/ and accountability| Technical/g, "");
+        const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = codes.map(k => +(st[k].sum / st[k].n).toFixed(2)), S = codes.map(k => st[k].self);
+        // dos arañas lado a lado, 86 x 66 mm cada una
+        const rw = (pdf.w - 8) / 2, rh = 66; pdf.ensure(rh + 12);
+        const cap = (t, sub, x) => { pdf.font("bold", 9.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(t), x, pdf.y + 3.5); pdf.font("normal", 7.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(sub), x, pdf.y + 7.5); };
+        cap(c.period_label || c.name, `Media ponderada, media aritmética y ${tu ? "tu" : "su"} autoevaluación · ${st._n} opiniones`, pdf.x);
+        const img1 = chartImage(radarPdfConfig(codes.map(lab), W, A, S), 520, 400);
+        pdf.image(img1, pdf.x, pdf.y + 9, rw, rh - 9);
+        if(hasPrev){ const pc = codes.filter(k => ps[k]); cap(prev.c.period_label || prev.c.name, `Las mismas tres líneas del año anterior · ${ps._n} opiniones`, pdf.x + rw + 8);
+          const img2 = chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum / ps[k].n).toFixed(2)), pc.map(k => ps[k].self)), 520, 400);
+          pdf.image(img2, pdf.x + rw + 8, pdf.y + 9, rw, rh - 9); }
+        else { cap("Año anterior", "Todavía no hay una review anterior con la que comparar", pdf.x + rw + 8); }
+        pdf.y += rh + 4;
+        // barras por nota: 4 por fila, 44 x 34 mm
+        pdf.section("Cuántas opiniones de cada nota");
+        pdf.font("normal", 7.5); pdf.color(PDFK.grey);
+        const legend = []; pdf.fill(PDFK.navy); pdf.d.rect(pdf.x, pdf.y + 0.5, 3, 3, "F"); pdf.d.text(pdfTxt(c.period_label || c.name), pdf.x + 4.5, pdf.y + 3);
+        let lx = pdf.x + 4.5 + pdf.d.getTextWidth(pdfTxt(c.period_label || c.name)) + 6;
+        if(hasPrev){ pdf.fill(PDFK.light); pdf.d.rect(lx, pdf.y + 0.5, 3, 3, "F"); pdf.d.text(pdfTxt(prev.c.period_label || prev.c.name), lx + 4.5, pdf.y + 3); lx += 4.5 + pdf.d.getTextWidth(pdfTxt(prev.c.period_label || prev.c.name)) + 6; }
+        pdf.color(PDFK.red); pdf.d.text(`en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación`, lx, pdf.y + 3); pdf.color(PDFK.grey); pdf.d.text("  ·  el porcentaje es sobre las personas que respondieron ese año", lx + pdf.d.getTextWidth(`en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación`), pdf.y + 3);
+        pdf.y += 6;
+        const cols = 4, gap = 4, cw = (pdf.w - gap * (cols - 1)) / cols, chH = 34, capH = 9, cellH = capH + chH + 4;
+        codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + gap); const y0 = pdf.y;
+          pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 3.2);
+          pdf.font("normal", 7); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(`media ${(st[k].sum / st[k].n).toFixed(2)}${hasPrev && ps[k] ? ` · año anterior ${(ps[k].sum / ps[k].n).toFixed(2)}` : ""}`), x, y0 + 6.8);
+          const img = chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self), 440, 340);
+          pdf.image(img, x, y0 + capH, cw, chH);
+          if(col === cols - 1 || j === codes.length - 1) pdf.y += cellH; });
+        pdf.y += 2;
+      }
+      pdf.section("Resumen del lead reviewer");
+      const yr = fr && fr.objectives_year ? fr.objectives_year : (yearCur ? yearCur + 1 : "");
+      pdf.box("Reviewer Summary", fr && fr.summary); pdf.box("Top Achievements", fr && fr.positives); pdf.box("Top Developments", fr && fr.development);
+      if(fr && fr.quotes) pdf.box("Key Quotes from Reviewers", fr.quotes);
+      pdf.box(`Objectives ${yr}`, fr && fr.objectives);
+    }
+    const n = pdf.finish(`${fullName(p)} - ${c.name}.pdf`);
+    toast(`PDF descargado (${n} página${n > 1 ? "s" : ""})`);
+  }catch(e){ err(e, "PDF"); }
 }
-// Mi autoevaluación enviada, tal como se ve (Hugo, 08-sep-2026: cada uno se la guarda donde quiera)
+// PDF de una respuesta enviada (mi autoevaluación): secciones, preguntas y respuestas
 async function downloadFormPDF(){
-  const el = document.getElementById("formPrint"); if(!el || !CUR) return;
-  await pdfFromElement(el, `${fullName(ME)} - ${CUR.cycle.name} - Mi autoevaluación.pdf`);
+  if(!CUR) return; const { a, form, answers, cycle } = CUR;
+  toast("Generando el PDF…");
+  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  try{
+    const pdf = new PdfDoc(cycle.name, cycle.period_label || "");
+    const p = a.reviewee;
+    pdf.head(a.role === 'self' ? `${fullName(p)} · Autoevaluación` : `${fullName(p)} · ${ROLE_LABEL[a.role]}`, [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "), a.role === 'self' ? "" : `Escrita por ${fullName(a.reviewer)}`, a.submitted_at ? `Enviada el ${fmtDT(a.submitted_at)}` : STATUS_LABEL[a.status], form.name);
+    const groups = questionsFor(form, a.role);
+    for(const g of groups){
+      pdf.section(g.section.title);
+      for(const q of g.questions){
+        const an = answers[q.id] || {};
+        if(q.kind === 'scale'){
+          pdf.ensure(11); pdf.font("bold", 9.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(q.text), pdf.x, pdf.y + 3.6);
+          // escala 1-5 con la nota marcada
+          const v = an.value_num; const x0 = pdf.x + pdf.w - 60;
+          for(let i = 1; i <= 5; i++){ const cx = x0 + (i - 1) * 9; if(v === i){ pdf.fill(PDFK.navy); pdf.d.circle(cx, pdf.y + 2.6, 2.6, "F"); pdf.font("bold", 8); pdf.color(PDFK.white); pdf.d.text(String(i), cx, pdf.y + 3.6, { align:"center" }); }
+            else { pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.3); pdf.d.circle(cx, pdf.y + 2.6, 2.6, "S"); pdf.font("normal", 8); pdf.color(PDFK.faint); pdf.d.text(String(i), cx, pdf.y + 3.6, { align:"center" }); } }
+          pdf.font("normal", 8); pdf.color(v ? PDFK.ink : PDFK.faint); pdf.d.text(v ? `${v} / 5` : "sin nota", x0 + 48, pdf.y + 3.6);
+          pdf.y += 9;
+        } else {
+          pdf.box(q.text, (an.value_text || "").trim() || null, { fill: PDFK.soft });
+        }
+      }
+      pdf.y += 2;
+    }
+    const n = pdf.finish(`${fullName(p)} - ${cycle.name} - ${a.role === 'self' ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf`);
+    toast(`PDF descargado (${n} página${n > 1 ? "s" : ""})`);
+  }catch(e){ err(e, "PDF"); }
 }
 function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
 // Araña con tres líneas y pop-up de las tres notas al pasar por un eje
@@ -1944,7 +2051,7 @@ function moreActions(btn, cycleId){
   const m = document.createElement("div"); m.className = "selmenu actmenu";
   m.innerHTML = `<div class="sm-list">
     <div class="sm-item" onclick="closeSelMenu();prefillSelf('${cycleId}')"><i class="ti ti-user"></i> Añadir solo las autoevaluaciones</div>
-    <div class="sm-item" onclick="closeSelMenu();exportAssign('${cycleId}')"><i class="ti ti-download"></i> Exportar a Excel (CSV)</div>
+    <div class="sm-item" onclick="closeSelMenu();exportAssign('${cycleId}')"><i class="ti ti-download"></i> Exportar asignaciones a Excel</div>
     <div class="sm-item" onclick="closeSelMenu();reopenPicker('${cycleId}')"><i class="ti ti-lock-open"></i> Reabrir una respuesta enviada…</div>
     <div class="sm-item" style="color:var(--bad)" onclick="closeSelMenu();clearPending('${cycleId}')"><i class="ti ti-eraser" style="color:var(--bad)"></i> Quitar las asignaciones no empezadas</div></div>`;
   document.body.appendChild(m);
@@ -2016,9 +2123,24 @@ async function doClearPending(){
   if(error) return err(error, "No se pudo quitar"); toast("Asignaciones pendientes quitadas"); render();
 }
 async function exportAssign(cycleId){
+  const c = byId(CYCLES, cycleId);
   const { data } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", cycleId);
-  const lines = ["evaluado;equipo;papel;evaluador;estado;enviada"].concat((data||[]).map(a=>[fullName(a.reviewee),TEAM_LABEL[a.reviewee.team]||"",ROLE_LABEL[a.role],fullName(a.reviewer),STATUS_LABEL[a.status],a.submitted_at||""].join(";")));
-  const blob = new Blob(["﻿"+lines.join("\n")],{type:"text/csv;charset=utf-8"}); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href=u; a.download="asignaciones.csv"; a.click(); URL.revokeObjectURL(u);
+  if(!data || !data.length) return toast("Este ciclo no tiene asignaciones");
+  toast("Preparando el Excel…");
+  await loadExcelJS();
+  const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
+  const { GREY, box, headRow, title, sub, num } = XL;
+  const ws = wb.addWorksheet("Asignaciones", { views:[{ state:"frozen", ySplit:4 }] });
+  title(ws, 1, c.name, 16); sub(ws, 2, `Asignaciones · exportado el ${fmtD(new Date())} por ${fullName(ME)}`);
+  headRow(ws, 4, ["Persona evaluada", "Equipo", "Tipo de review", "Evaluador", "Equipo del evaluador", "Estado", "Enviada"], 7);
+  const order = { self:0, lead:1, peer:2 };
+  const rows = data.slice().sort((x,y) => fullName(x.reviewee).localeCompare(fullName(y.reviewee)) || order[x.role] - order[y.role] || fullName(x.reviewer).localeCompare(fullName(y.reviewer)));
+  rows.forEach((a, i) => { const r = ws.getRow(5 + i); r.values = [fullName(a.reviewee), TEAM_LABEL[a.reviewee.team] || "", ROLE_LABEL[a.role], fullName(a.reviewer), TEAM_LABEL[a.reviewer.team] || "", STATUS_LABEL[a.status], a.submitted_at ? fmtD(a.submitted_at) : ""];
+    r.getCell(1).font = { bold:true }; r.getCell(6).font = { color:{ argb: a.status === 'submitted' ? "FF0E9AAB" : a.status === 'draft' ? "FFB7791F" : GREY } }; for(let x = 1; x <= 7; x++) r.getCell(x).border = box; });
+  [28, 13, 15, 28, 18, 12, 12].forEach((w, i) => ws.getColumn(i + 1).width = w);
+  ws.autoFilter = { from:"A4", to:"G4" };
+  const buf = await wb.xlsx.writeBuffer(); const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = `Asignaciones - ${c.name}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"); el.click(); URL.revokeObjectURL(u);
+  toast(`Excel: ${rows.length} asignaciones`);
 }
 
 /* ----- Personas ----- */
