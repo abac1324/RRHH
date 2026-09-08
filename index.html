@@ -1729,7 +1729,7 @@ async function mailSendNow(quiet){
 /* ----- Ciclo: crear / editar ----- */
 const CYCLE_TEMPLATES = {
   dic: { label:"Evaluación de diciembre · 360 por equipos", kind:"360", desc:"Cada persona se autoevalúa; Deal Team y Operations evalúan al Deal Team; todo el mundo evalúa a Operations; el resto de Nest y Operations evalúan a Nest; los equity partners evalúan a todo el mundo y a ellos nadie. El lead reviewer (asignado por administración) valora y escribe el resumen final. La persona solo ve ese resumen y sus gráficos agregados, cuando el lead pulsa «Mostrar resultados».",
-         forms:{ self:"dic_self_lead", lead:"dic_self_lead", peer_deal:"dic_deal_peer", peer_operations:"dic_ops_peer", peer_nest:"dic_ops_peer", peer:"dic_ops_peer" },
+         forms:{ self:"dic_self_lead", lead:"dic_self_lead", self_deal:"dic_self_deal", peer_deal:"dic_deal_peer", peer_operations:"dic_ops_peer", peer_nest:"dic_ops_peer", peer:"dic_ops_peer" },
          visibility:{ peers_attributed:false, reviewee_sees_peers:"aggregate", reviewee_sees_lead:true, anon_threshold:0, lead_after_peers:false, peers_see_self:false } },
   jun: { label:"Mid Term Feedback · junio (cascada)", kind:"cascade", desc:"Cada persona se autoevalúa y elige a 2-3 compañeros; el lead reviewer lo asigna administración. Compañeros y lead responden sin ver la autoevaluación; el lead la lee, junto con las respuestas de los compañeros, cuando ha enviado la suya y va a escribir el resumen. La persona solo ve el resumen del lead cuando este pulsa «Mostrar resultados».",
          forms:{ self:"jun_self", lead:"jun_lead", peer:"jun_peer" },
@@ -1742,7 +1742,7 @@ function readCycleForm(){
   const mode = (document.querySelector('input[name="vmode"]:checked')||{}).value || "aggregate";
   return {
     name:g("cy_name").value.trim(), kind:g("cy_kind").value, period_label:g("cy_period").value.trim()||null, opens_at:g("cy_open").value||null, closes_at:g("cy_close").value||null,
-    forms:{ self:g("cf_self").value, lead:g("cf_lead").value, peer_deal:g("cf_peer_deal").value, peer_operations:g("cf_peer_operations").value, peer_nest:g("cf_peer_nest").value },
+    forms:{ self:g("cf_self").value, lead:g("cf_lead").value, self_deal:g("cf_self_deal").value, peer_deal:g("cf_peer_deal").value, peer_operations:g("cf_peer_operations").value, peer_nest:g("cf_peer_nest").value },
     visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||0, reviewee_sees_lead:g("v_lead").checked, peers_see_self:false, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
   };
 }
@@ -1764,7 +1764,7 @@ function applyTemplate(key){
   const g = x => document.getElementById(x);
   const fid = code => (FORMS.find(f=>f.code===code)||{}).id || "";
   g("cy_kind").value = t.kind;
-  g("cf_self").value = fid(t.forms.self||""); g("cf_lead").value = fid(t.forms.lead||"");
+  g("cf_self").value = fid(t.forms.self||""); g("cf_lead").value = fid(t.forms.lead||""); g("cf_self_deal").value = fid(t.forms.self_deal||"");
   g("cf_peer_deal").value = fid(t.forms.peer_deal||t.forms.peer||""); g("cf_peer_operations").value = fid(t.forms.peer_operations||t.forms.peer||""); g("cf_peer_nest").value = fid(t.forms.peer_nest||t.forms.peer||"");
   const v = t.visibility;
   const r = document.querySelector(`input[name="vmode"][value="${v.reviewee_sees_peers}"]`); if(r) r.checked = true;
@@ -1793,8 +1793,9 @@ function editCycle(id){
    <details id="adv" ${id?"":""} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;color:var(--ink);font-size:13px"><i class="ti ti-adjustments"></i> Cambiar cómo funciona <span class="mut" style="font-weight:500">· normalmente no hace falta</span></summary>
    <h3 style="margin-top:14px">1 · Qué cuestionario rellena cada uno</h3>
    <table class="qtable">
-     <tr><td><b>Cada persona</b>, sobre sí misma</td><td><select class="inp" id="cf_self">${fopts(cf('self'))}</select></td></tr>
-     <tr><td><b>El lead reviewer</b>, sobre la persona que revisa</td><td><select class="inp" id="cf_lead">${fopts(cf('lead'))}</select></td></tr>
+     <tr><td><b>Cada persona</b>, sobre sí misma (Operations y Nest)</td><td><select class="inp" id="cf_self">${fopts(cf('self'))}</select></td></tr>
+     <tr><td><b>El lead reviewer</b>, sobre la persona que revisa (Operations y Nest)</td><td><select class="inp" id="cf_lead">${fopts(cf('lead'))}</select></td></tr>
+     <tr><td><b>Autoevaluación y lead reviewer</b> de alguien del <b>Deal Team</b></td><td><select class="inp" id="cf_self_deal">${fopts(cfTeam('self','deal'))}</select></td></tr>
      <tr><td><b>Los compañeros</b>, cuando evalúan a alguien del <b>Deal Team</b></td><td><select class="inp" id="cf_peer_deal">${fopts(cfTeam('peer','deal'))}</select></td></tr>
      <tr><td>Los compañeros, cuando evalúan a alguien de <b>Operations</b></td><td><select class="inp" id="cf_peer_operations">${fopts(cfTeam('peer','operations'))}</select></td></tr>
      <tr><td>Los compañeros, cuando evalúan a alguien de <b>Nest</b></td><td><select class="inp" id="cf_peer_nest">${fopts(cfTeam('peer','nest'))}</select></td></tr>
@@ -1827,6 +1828,7 @@ async function saveCycle(id){
   const rows = [];
   const add = (role, team, v) => { if(v) rows.push({cycle_id:cid, role, team, form_id:v}); };
   add("self",null,f.forms.self); add("lead",null,f.forms.lead);
+  add("self","deal",f.forms.self_deal); add("lead","deal",f.forms.self_deal);   // el Deal Team se autoevalúa (y su lead valora) con su propio cuestionario
   add("peer","deal",f.forms.peer_deal); add("peer","operations",f.forms.peer_operations); add("peer","nest",f.forms.peer_nest);
   add("peer",null,f.forms.peer_operations || f.forms.peer_deal || f.forms.peer_nest);   // quien no tenga equipo usa el de Operations
   if(rows.length){ const { error } = await sb.from("cycle_forms").insert(rows); if(error) return err(error,"Cuestionarios del ciclo"); }
