@@ -1343,7 +1343,7 @@ PAGES.review = async function(arg){
   const canEdit = iAmLead && !(fr && fr.status === 'sent');
   const pending = []; if(!selfDone) pending.push("la autoevaluación"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} compañero${peersAll.length-peersDone.length>1?'s':''}`);
   const frStatus = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
-  return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>${showBtn}`) +
+  return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button><button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>${showBtn}`) +
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
     ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Lee primero los objetivos del año anterior y las puntuaciones; el Excel tiene todas las respuestas juntas.</div>`) : ""}
     ${resultsHTML(view, 'other', { fr, canEdit })}
