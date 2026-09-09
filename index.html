@@ -332,6 +332,8 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.55;cursor:pointer}
 .qtable td{padding:0 8px 0 0;border:none;vertical-align:middle;font-size:13px}
 .qtable td:first-child{width:46%;color:var(--text)}
 .qtable td:first-child b{color:var(--ink)}
+.imp-map{display:flex;flex-wrap:wrap;gap:8px 16px;margin:10px 0 4px}.imp-map .col{display:flex;flex-direction:column;gap:3px}.imp-map .col .xs{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-tbl{width:100%;border-collapse:collapse;font-size:12.5px}.imp-tbl th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}.imp-tbl td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}.imp-tbl .who{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.imp-tbl .del{text-decoration:line-through;color:var(--muted)}
 input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align:center;margin:0 4px;vertical-align:middle}
 
 /* ---------- Asignaciones: vista limpia ---------- */
@@ -1767,7 +1769,7 @@ const ADMIN = {
     ADM.cycle = ADM.cycle || CYCLES[0].id; const c = byId(CYCLES, ADM.cycle);
     const { data:as, error } = await sb.from("assignments").select("*").eq("cycle_id", c.id); if(error) throw error;
     window.ASG_CACHE = as;
-    const hasForm = r => (c.cycle_forms||[]).some(x=>x.role===r);
+    const hasForm = r => (c.cycle_forms||[]).some(x=>x.role===r) || (r === 'lead' && (c.cycle_forms||[]).some(x=>x.role==='peer'));   // el lead responde el de compañeros si no tiene uno propio
     const people = PEOPLE.filter(p => p.active && isEvaluated(p));
     const byRev = {}; for(const a of as){ const r = (byRev[a.reviewee_id] ||= {self:null, lead:null, peers:[]}); if(a.role==='peer') r.peers.push(a); else r[a.role] = a; }
     const sent = as.filter(a=>a.status==='submitted').length;
@@ -1791,7 +1793,8 @@ const ADMIN = {
     return `<div class="row" style="margin-bottom:14px;gap:10px;flex-wrap:wrap">
       <select class="inp" style="width:auto" onchange="ADM.cycle=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
       <span class="sm mut">${as.length} asignaciones · ${Object.keys(byRev).length} personas · ${sent} enviadas</span><span style="flex:1"></span>
-      <button class="btn pri" onclick="prefill360('${c.id}')" title="Crea autoevaluaciones y compañeros. El lead reviewer queda vacío: se pone a mano con el archivo del CEO."><i class="ti ti-wand"></i> Rellenar con la regla de diciembre</button>
+      <button class="btn" onclick="importAssign('${c.id}')" title="Sube el Excel con las personas y sus lead reviewers (en junio, también los compañeros). Venga como venga: la app lo interpreta y enseña lo que va a cambiar antes de aplicarlo."><i class="ti ti-file-upload"></i> Importar Excel</button>
+      <button class="btn pri" onclick="prefill360('${c.id}')" title="Crea autoevaluaciones y compañeros. El lead reviewer queda vacío: se pone con «Importar Excel» (archivo del CEO) o a mano."><i class="ti ti-wand"></i> Rellenar con la regla de diciembre</button>
       <button class="btn" onclick="event.stopPropagation();moreActions(this,'${c.id}')"><i class="ti ti-dots"></i></button></div>
     ${!hasForm('self')||!hasForm('peer')||!hasForm('lead') ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> A este ciclo le falta el cuestionario de ${['self','lead','peer'].filter(r=>!hasForm(r)).map(r=>ROLE_LABEL[r]).join(", ")}. Edítalo en «Ciclos» antes de asignar.</div>` : ""}
     <div class="card" style="padding-top:8px"><table><tr><th style="width:26%">Persona</th><th style="width:16%">Autoevaluación</th><th style="width:24%">Lead reviewer</th><th>Compañeros que la evalúan</th></tr>${rows}</table>
@@ -2180,6 +2183,195 @@ async function exportAssign(cycleId){
   ws.autoFilter = { from:"A4", to:"G4" };
   const buf = await wb.xlsx.writeBuffer(); const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = `Asignaciones - ${c.name}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"); el.click(); URL.revokeObjectURL(u);
   toast(`Excel: ${rows.length} asignaciones`);
+}
+
+/* ----- Importar asignaciones desde Excel (Hugo, 09-sep-2026) -----
+   Un Excel (o CSV) con las personas y sus lead reviewers y, en junio, sus compañeros, venga como venga: se localiza la fila de
+   cabecera y el papel de cada columna por su título (persona / lead reviewer / compañeros) o, si no hay títulos, por su contenido
+   (columnas llenas de nombres de la firma, en ese orden). Cada persona se reconoce por nombre completo, apellidos, nombre de pila
+   si es único, iniciales con apellido o correo. Antes de tocar nada se enseña la vista previa con lo que va a cambiar; lo que no
+   se reconoce se corrige ahí mismo eligiendo a la persona. Diciembre: solo lead reviewers (los compañeros siguen la regla de
+   equipos). Junio: lead reviewers y compañeros. Lo ya empezado o enviado nunca se toca. */
+const IMP_STOP = new Set(["de","del","la","las","los","el","y","i","e","da","do","dos","das","van","von","d","the","and","mr","mrs","sr","sra"]);
+const impNorm = s => String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9@.\-]+/g, " ").trim();
+const impTokens = s => impNorm(s).replace(/[@.\-]/g, " ").split(" ").filter(t => t && !IMP_STOP.has(t));
+const impKey = s => impTokens(s).join(" ");
+const impSplit = s => String(s || "").split(/[,;\/\n|]+|\s+y\s+|\s+and\s+|\s*&\s*/i).map(x => x.trim()).filter(Boolean);
+const impColName = i => { let n = i, out = ""; do { out = String.fromCharCode(65 + (n % 26)) + out; n = Math.floor(n / 26) - 1; } while(n >= 0); return out; };
+function impIndex(){ return PEOPLE.filter(p => p.active).map(p => ({ p, full: impTokens(fullName(p)), email: impNorm(p.email).replace(/ /g, "") })); }
+// Reconoce a una persona en un texto. Devuelve { p }, { ambiguous:[...] } o null.
+function impMatch(text, idx){
+  const raw = impNorm(text); if(!raw) return null;
+  if(raw.includes("@")){ const em = raw.replace(/ /g, ""); const hit = idx.filter(x => x.email === em); return hit.length === 1 ? { p: hit[0].p } : null; }
+  const toks = impTokens(text); if(!toks.length) return null;
+  if(toks.length === 1 && toks[0].length <= 2) return null;                 // una inicial sola no identifica a nadie
+  const cands = [];
+  for(const x of idx){
+    const used = new Set(); let hits = 0;
+    for(const t of toks){ const k = x.full.findIndex((w, i) => !used.has(i) && (w === t || (t.length <= 2 && w.startsWith(t)))); if(k >= 0){ used.add(k); hits++; } }
+    if(!hits || hits < toks.length - (toks.length >= 3 ? 1 : 0)) continue;   // como mucho una palabra suelta («(socio)»), y solo si hay tres o más
+    if(hits === 1 && toks.length === 1 && x.full.length > 1 && !x.full.includes(toks[0])) continue;
+    cands.push({ x, score: hits * 10 + (hits === x.full.length ? 5 : 0) - (toks.length - hits) * 3 });
+  }
+  if(!cands.length) return null;
+  cands.sort((a, b) => b.score - a.score);
+  const top = cands.filter(k => k.score === cands[0].score);
+  return top.length > 1 ? { ambiguous: top.map(k => k.x.p) } : { p: cands[0].x.p };
+}
+// Papel de una columna según su título
+const IMP_HEAD = [
+  ["lead", /\b(lead|l\.?r\.?|manager|responsable|supervisor|jef[ea]|head|principal|reporta|reports?|tutora?)\b/],
+  ["peer", /\b(comp|compa[n]er[oa]s?|companys?|colegas?|peers?|revisor(es|a|as)?|reviewers?|evaluador(es|a|as)?|colleagues?|360|evalua(n)?)\b/],
+  ["who",  /\b(persona|evaluad[oa]s?|evaluee|reviewee|employee|emplead[oa]s?|trabajador(a|es|as)?|treballador|nombre|nom|name|apellidos?|surname|miembro|member|avaluat|e-?mail|correo)\b/],
+];
+const impHeadRole = t => { const n = impNorm(t); if(!n) return null; for(const [r, re] of IMP_HEAD) if(re.test(n)) return r; return null; };
+// Lee .xlsx (ExcelJS) o .csv → [{ name, rows:[[celda…]] }]
+async function impReadFile(file){
+  const name = file.name.toLowerCase();
+  if(name.endsWith(".csv") || name.endsWith(".txt")){
+    const txt = await file.text(); const lines = txt.split(/\r?\n/).filter(l => l.trim());
+    const delim = [";", ",", "\t"].map(d => [d, (lines[0] || "").split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+    const parse = l => { const out = []; let cur = "", q = false; for(const ch of l){ if(ch === '"') q = !q; else if(ch === delim && !q){ out.push(cur); cur = ""; } else cur += ch; } out.push(cur); return out.map(x => x.trim()); };
+    return [{ name: file.name, rows: lines.map(parse) }];
+  }
+  await loadExcelJS();
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer());
+  const sheets = [];
+  wb.eachSheet(ws => { const rows = []; ws.eachRow({ includeEmpty:false }, row => { const vals = []; row.eachCell({ includeEmpty:true }, (cell, col) => { vals[col - 1] = String(cell.text == null ? "" : cell.text).trim(); }); rows.push(vals); }); if(rows.length) sheets.push({ name: ws.name, rows }); });
+  return sheets;
+}
+// Cabecera y papel de cada columna
+function impAnalyze(rows, idx){
+  const ncol = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  const filled = r => r.filter(v => v && String(v).trim()).length;
+  let head = -1, best = 0;
+  rows.slice(0, 15).forEach((r, i) => { if(filled(r) < 2) return; const n = r.filter(v => impHeadRole(v)).length; if(n > best){ best = n; head = i; } });
+  const data = rows.slice(head + 1);
+  const cols = [];
+  for(let ci = 0; ci < ncol; ci++){
+    const vals = data.map(r => r[ci]).filter(v => v && String(v).trim());
+    const title = head >= 0 ? (rows[head][ci] || "") : "";
+    if(!vals.length && !title) continue;
+    let parts = 0, ok = 0; for(const v of vals) for(const t of impSplit(v)){ parts++; const m = impMatch(t, idx); if(m && m.p) ok++; }
+    cols.push({ ci, title, role: head >= 0 ? impHeadRole(title) : null, rate: parts ? ok / parts : 0, n: vals.length });
+  }
+  // columnas llenas de nombres sin título reconocible: sin cabecera, en orden persona → lead reviewer → compañeros (todas las demás);
+  // con cabecera, son compañeros («Comp. 1», «Comp. 2»…) siempre que ya haya una columna de persona
+  for(const col of cols){ if(col.role || col.rate < 0.5 || col.n < 2) continue;
+    if(head < 0){ col.role = ["who", "lead"].find(r => !cols.some(x => x.role === r)) || "peer"; }
+    else if(cols.some(x => x.role === 'who')) col.role = "peer"; }
+  return { head, cols, data };
+}
+function importAssign(cycleId){
+  let inp = document.getElementById("impFile");
+  if(!inp){ inp = document.createElement("input"); inp.type = "file"; inp.id = "impFile"; inp.accept = ".xlsx,.xlsm,.csv,.txt"; inp.setAttribute("aria-label", "Archivo de asignaciones"); inp.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0"; document.body.appendChild(inp); }
+  inp.onchange = async () => { const f = inp.files[0]; inp.value = ""; if(f) await impLoad(cycleId, f); };
+  inp.click();
+}
+async function impLoad(cycleId, file){
+  toast("Leyendo el archivo…");
+  let sheets; try{ sheets = await impReadFile(file); }catch(e){ console.warn(e); return toast("No se pudo leer el archivo. Guárdalo como .xlsx o .csv y vuelve a probar", true); }
+  if(!sheets.length) return toast("El archivo está vacío", true);
+  const { data:cur, error } = await sb.from("assignments").select("id,reviewee_id,reviewer_id,role,status").eq("cycle_id", cycleId); if(error) return err(error, "Importar asignaciones");
+  const idx = impIndex();
+  for(const sh of sheets) sh.an = impAnalyze(sh.rows, idx);
+  const score = sh => sh.an.cols.filter(x => x.role === 'who').reduce((m, x) => Math.max(m, x.n * x.rate), 0);
+  let best = 0; sheets.forEach((sh, i) => { if(score(sh) > score(sheets[best])) best = i; });
+  window.IMP = { cycleId, fileName:file.name, sheets, sheet:best, map:{}, fixes:{}, opts:{ self:true }, current:cur || [], idx };
+  impRender();
+}
+function impSetSheet(i){ IMP.sheet = +i; IMP.map = {}; impRender(); }
+function impSetCol(ci, role){ IMP.map[ci] = role || ""; impRender(); }        // "" = ignorar; sin entrada = automático
+function impFix(key, pid){ if(pid) IMP.fixes[key] = pid; else delete IMP.fixes[key]; impRender(); }
+function impOpt(k, v){ IMP.opts[k] = v; impRender(); }
+function impRole(col, isDec){ const S = IMP; if(S.map[col.ci] !== undefined) return S.map[col.ci]; return isDec && col.role === 'peer' ? "" : (col.role || ""); }
+// Qué haría la importación con lo que hay ahora en el ciclo
+function impPlan(){
+  const S = IMP; const c = byId(CYCLES, S.cycleId); const isDec = c.kind === '360'; const { cols, data } = S.sheets[S.sheet].an;
+  const roleCols = r => cols.filter(x => impRole(x, isDec) === r).map(x => x.ci);
+  const whoC = roleCols("who"), leadC = roleCols("lead"), peerC = isDec ? [] : roleCols("peer");
+  const resolve = txt => { const k = impKey(txt); if(S.fixes[k]) return { p: person(S.fixes[k]) }; return impMatch(txt, S.idx); };
+  const resolveMulti = txts => { txts = txts.filter(Boolean); if(!txts.length) return null; let amb = null;
+    if(txts.length > 1){ const m = resolve(txts.join(" ")); if(m && m.p) return m; if(m) amb = m; }
+    for(const t of txts){ const m = resolve(t); if(m && m.p) return m; if(m && !amb) amb = m; }
+    return amb; };
+  const cur = S.current; const items = []; const seen = new Set();
+  const stats = { self:0, lead:0, peerAdd:0, peerDel:0, unknown:0, blocked:0, same:0, rows:0 };
+  data.forEach((row, ri) => {
+    const whoTxt = whoC.map(ci => row[ci]).filter(Boolean), leadTxt = leadC.map(ci => row[ci]).filter(Boolean), peerTxt = peerC.flatMap(ci => impSplit(row[ci]));
+    if(!whoTxt.length) return;
+    const who = resolveMulti(whoTxt);
+    if(!(who && who.p) && !leadTxt.length && !peerTxt.length) return;     // subtítulos de equipo, notas… nada que asignar
+    const it = { whoTxt: whoTxt.join(" "), who, leadTxt: leadTxt.join(" "), lead: leadTxt.length ? resolveMulti(leadTxt) : null, peers: peerTxt.map(t => ({ t, m: resolve(t) })), notes: [], acts: { self:false, leadDel:null, leadAdd:null, peerAdd:[], peerDel:[] }, leadPrev:null, leadSame:false };
+    items.push(it); stats.rows++;
+    if(!(who && who.p)){ stats.unknown++; return; }
+    const p = who.p;
+    if(seen.has(p.id)){ it.notes.push("fila repetida: se ignora"); return; } seen.add(p.id);
+    if(!isEvaluated(p)){ it.notes.push("no se le evalúa (casilla de Personas): no se asigna"); stats.blocked++; return; }
+    const mine = cur.filter(a => a.reviewee_id === p.id);
+    if(S.opts.self && !mine.some(a => a.role === 'self')){ if(roleForm(c, 'self', p)){ it.acts.self = true; stats.self++; } else it.notes.push("el ciclo no tiene cuestionario de autoevaluación"); }
+    if(it.lead && it.lead.p){
+      const L = it.lead.p, cl = mine.find(a => a.role === 'lead');
+      if(L.id === p.id) it.notes.push("el lead reviewer no puede ser la misma persona");
+      else if(cl && cl.reviewer_id === L.id){ it.leadSame = true; stats.same++; }
+      else if(cl && cl.status !== 'pending'){ it.notes.push(`su lead actual (${fullName(person(cl.reviewer_id))}) ya ha ${cl.status === 'submitted' ? 'enviado' : 'empezado'} la review: no se cambia`); stats.blocked++; }
+      else if(!roleForm(c, 'lead', p, L)) it.notes.push("el ciclo no tiene cuestionario para esta pareja de equipos");
+      else { it.acts.leadDel = cl ? cl.id : null; it.acts.leadAdd = L; it.leadPrev = cl ? person(cl.reviewer_id) : null; stats.lead++; }
+    } else if(it.leadTxt) stats.unknown++;
+    if(peerC.length){
+      const target = []; for(const x of it.peers){ if(x.m && x.m.p){ if(x.m.p.id !== p.id && !target.some(y => y.id === x.m.p.id)) target.push(x.m.p); } else stats.unknown++; }
+      const curP = mine.filter(a => a.role === 'peer');
+      for(const q of target){ if(curP.some(a => a.reviewer_id === q.id)) continue; if(!roleForm(c, 'peer', p, q)){ it.notes.push(`sin cuestionario para ${fullName(q)}`); continue; } it.acts.peerAdd.push(q); }
+      if(it.peers.length) for(const a of curP){ if(target.some(q => q.id === a.reviewer_id)) continue; if(a.status === 'pending') it.acts.peerDel.push(a); else it.notes.push(`${fullName(person(a.reviewer_id))} no está en el Excel pero ya ha ${a.status === 'submitted' ? 'enviado' : 'empezado'}: se mantiene`); }
+      stats.peerAdd += it.acts.peerAdd.length; stats.peerDel += it.acts.peerDel.length;
+    }
+  });
+  return { c, isDec, items, stats, whoC, leadC, peerC, cols };
+}
+function impRender(){
+  const S = IMP; const P = impPlan(); const { c, isDec, items, stats, cols } = P; const sheet = S.sheets[S.sheet];
+  const people = PEOPLE.filter(p => p.active).slice().sort((a, b) => a.last_name.localeCompare(b.last_name));
+  const pick = key => `<select class="inp" style="width:auto" onchange="impFix('${esc(key)}', this.value)"><option value="">Elegir persona…</option>${people.map(p => `<option value="${p.id}" data-p="${p.id}">${esc(fullName(p))}</option>`).join("")}</select>`;
+  const who = p => `<span class="who">${av(p, "sm")}${esc(fullName(p))}</span>`;
+  const unknown = (txt, m) => `<div class="row" style="gap:8px;flex-wrap:wrap"><span class="pill bad">${m && m.ambiguous ? "varias coincidencias" : "no reconocido"}</span><span class="xs mut">«${esc(txt)}»</span>${pick(impKey(txt))}</div>`;
+  const nChanges = stats.self + stats.lead + stats.peerAdd + stats.peerDel;
+  const mapUI = cols.map(col => { const r = impRole(col, isDec); return `<div class="col"><span class="xs mut" title="${esc(col.title || "")}">Columna ${impColName(col.ci)}${col.title ? ` · ${esc(col.title)}` : ""}</span>
+      <select class="inp" style="width:auto" onchange="impSetCol(${col.ci}, this.value)"><option value="" ${r === "" ? "selected" : ""}>${isDec && col.role === 'peer' ? "Ignorar (compañeros: regla de equipos)" : "Ignorar"}</option><option value="who" ${r === "who" ? "selected" : ""}>Persona evaluada</option><option value="lead" ${r === "lead" ? "selected" : ""}>Lead reviewer</option>${isDec ? "" : `<option value="peer" ${r === "peer" ? "selected" : ""}>Compañeros que la evalúan</option>`}</select></div>`; }).join("");
+  const rows = items.map(it => {
+    const leadCell = !it.leadTxt ? `<span class="xs mut">—</span>`
+      : !(it.lead && it.lead.p) ? unknown(it.leadTxt, it.lead)
+      : it.acts.leadAdd ? `${it.leadPrev ? `<span class="del">${esc(fullName(it.leadPrev))}</span> <i class="ti ti-arrow-right xs mut"></i> ` : ""}${who(it.lead.p)}`
+      : who(it.lead.p);
+    const peerCell = isDec ? "" : `<td>${it.peers.length ? it.peers.map(x => x.m && x.m.p ? (it.acts.peerAdd.some(q => q.id === x.m.p.id) ? `<span class="who" style="margin:2px 6px 2px 0"><b>+</b>${who(x.m.p)}</span>` : `<span class="who" style="margin:2px 6px 2px 0">${who(x.m.p)}</span>`) : unknown(x.t, x.m)).join("") + it.acts.peerDel.map(a => `<span class="who del" style="margin:2px 6px 2px 0">−&nbsp;${esc(fullName(person(a.reviewer_id)))}</span>`).join("") : `<span class="xs mut">—</span>`}</td>`;
+    const what = [it.acts.self ? "crea la autoevaluación" : "", it.acts.leadAdd ? (it.leadPrev ? "cambia el lead reviewer" : "asigna el lead reviewer") : "", it.leadSame ? "lead reviewer sin cambios" : "", it.acts.peerAdd.length ? `+${it.acts.peerAdd.length} compañero${it.acts.peerAdd.length > 1 ? "s" : ""}` : "", it.acts.peerDel.length ? `−${it.acts.peerDel.length} compañero${it.acts.peerDel.length > 1 ? "s" : ""}` : "", ...it.notes].filter(Boolean);
+    return `<tr><td>${it.who && it.who.p ? who(it.who.p) : unknown(it.whoTxt, it.who)}</td><td>${leadCell}</td>${peerCell}<td class="xs ${what.length && !it.notes.length ? "" : "mut"}">${what.join(" · ") || (it.who && it.who.p ? "sin cambios" : "")}</td></tr>`;
+  }).join("");
+  const summary = [stats.lead ? `${stats.lead} lead reviewer${stats.lead > 1 ? "s" : ""}` : "", stats.self ? `${stats.self} autoevaluaci${stats.self > 1 ? "ones" : "ón"}` : "", stats.peerAdd ? `+${stats.peerAdd} compañeros` : "", stats.peerDel ? `−${stats.peerDel} compañeros` : "", stats.same ? `${stats.same} sin cambios` : "", stats.blocked ? `${stats.blocked} bloqueado${stats.blocked > 1 ? "s" : ""}` : "", stats.unknown ? `<span style="color:var(--bad)">${stats.unknown} nombre${stats.unknown > 1 ? "s" : ""} sin reconocer</span>` : ""].filter(Boolean).join(" · ");
+  const body = `<h2>Importar asignaciones desde Excel</h2>
+    <p class="sm mut" style="margin-top:4px">«${esc(S.fileName)}»${S.sheets.length > 1 ? ` · hoja <select class="inp" style="width:auto;display:inline-block" onchange="impSetSheet(this.value)">${S.sheets.map((sh, i) => `<option value="${i}" ${i === S.sheet ? "selected" : ""}>${esc(sh.name)}</option>`).join("")}</select>` : ` · hoja «${esc(sheet.name)}»`} · ${sheet.an.head >= 0 ? `cabecera en la fila ${sheet.an.head + 1}` : "sin fila de cabecera: columnas deducidas por su contenido"} · ${stats.rows} persona${stats.rows === 1 ? "" : "s"} en el archivo.<br>
+    ${isDec ? "<b>Diciembre:</b> de este Excel solo se cogen los <b>lead reviewers</b>; los compañeros siguen la regla de equipos." : "<b>Junio:</b> se cogen los <b>lead reviewers</b> y los <b>compañeros</b> que evalúan a cada persona; la lista de compañeros del Excel sustituye a la actual."} Lo ya empezado o enviado no se toca.</p>
+    <div class="imp-map">${mapUI}</div>
+    <div class="chk" style="margin:6px 0 10px"><input type="checkbox" id="imp_self" ${S.opts.self ? "checked" : ""} onchange="impOpt('self', this.checked)"><label>Crear la autoevaluación de cada persona del Excel si aún no existe</label></div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px"><table class="imp-tbl"><tr><th>Persona evaluada</th><th>Lead reviewer</th>${isDec ? "" : "<th>Compañeros que la evalúan</th>"}<th>Qué pasará</th></tr>${rows || `<tr><td colspan="4" class="sm mut" style="padding:18px">No se ha encontrado ninguna persona de la firma en esta hoja. Comprueba las columnas de arriba${S.sheets.length > 1 ? " o cambia de hoja" : ""}.</td></tr>`}</table></div>
+    <div class="row" style="justify-content:space-between;margin-top:12px;gap:10px;flex-wrap:wrap"><span class="sm mut">${summary || "Nada que cambiar"}</span><div class="row" style="gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="impApply()" ${nChanges ? "" : "disabled"}><i class="ti ti-file-upload"></i> Aplicar ${nChanges ? nChanges + (nChanges > 1 ? " cambios" : " cambio") : ""}</button></div></div>`;
+  const bg = document.getElementById("modalBg"); const m = document.getElementById("modal");
+  if(bg.classList.contains("open")){ closeSelMenu(); m.innerHTML = body; enhanceSelects(m); } else openModal(body);
+}
+async function impApply(){
+  const P = impPlan(); const c = P.c; const del = [], rows = [];
+  for(const it of P.items){ if(!(it.who && it.who.p)) continue; const p = it.who.p;
+    if(it.acts.self) rows.push({ cycle_id:c.id, reviewee_id:p.id, reviewer_id:p.id, role:"self", form_id:roleForm(c, "self", p) });
+    if(it.acts.leadAdd){ if(it.acts.leadDel) del.push(it.acts.leadDel); rows.push({ cycle_id:c.id, reviewee_id:p.id, reviewer_id:it.acts.leadAdd.id, role:"lead", form_id:roleForm(c, "lead", p, it.acts.leadAdd) }); }
+    for(const q of it.acts.peerAdd) rows.push({ cycle_id:c.id, reviewee_id:p.id, reviewer_id:q.id, role:"peer", form_id:roleForm(c, "peer", p, q) });
+    for(const a of it.acts.peerDel) del.push(a.id); }
+  if(!rows.length && !del.length) return toast("No hay nada que aplicar");
+  closeModal(); progress(true);
+  if(del.length){ const { error } = await sb.from("assignments").delete().in("id", del); if(error){ progress(false); return err(error, "Importar asignaciones"); } }
+  if(rows.length){ const { error } = await sb.from("assignments").upsert(rows, { onConflict:"cycle_id,reviewee_id,reviewer_id,role", ignoreDuplicates:true }); if(error){ progress(false); return err(error, "Importar asignaciones"); } }
+  progress(false);
+  const s = P.stats;
+  toast(`Importado: ${[s.lead ? `${s.lead} lead reviewer${s.lead > 1 ? "s" : ""}` : "", s.self ? `${s.self} autoevaluaci${s.self > 1 ? "ones" : "ón"}` : "", s.peerAdd ? `+${s.peerAdd} compañeros` : "", s.peerDel ? `−${s.peerDel} compañeros` : ""].filter(Boolean).join(" · ")}`);
+  render();
 }
 
 /* ----- Personas ----- */
