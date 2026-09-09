@@ -1036,61 +1036,71 @@ function loadScript(url, ready){
   return new Promise((ok, ko) => { const el = document.createElement("script"); el.src = url; el.onload = () => ready() ? ok() : ko(new Error("Librería no disponible")); el.onerror = () => ko(new Error("No se pudo cargar " + url)); document.head.appendChild(el); });
 }
 /* ---------- PDF profesionales (jsPDF, bajo demanda): texto vectorial, gráficos como imagen a tamaño fijo, paginación controlada ---------- */
-const PDFK = { W:210, H:297, M:15, navy:[14,33,80], ink:[28,34,48], grey:[92,102,117], faint:[150,158,170], line:[217,222,231], soft:[242,245,250], teal:[14,154,171], orange:[232,134,46], red:[214,69,69], light:[169,205,244], white:[255,255,255] };
+const PDFK = { W:210, H:297, M:18, navy:[14,33,80], ink:[28,34,48], grey:[92,102,117], faint:[150,158,170], line:[225,229,236], soft:[245,247,250], teal:[14,154,171], red:[214,69,69], light:[169,205,244], white:[255,255,255] };
 // jsPDF usa la codificación WinAnsi: sustituimos lo que no tiene
-const pdfTxt = t => String(t == null ? "" : t).replace(/→/g, "->").replace(/–/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/ /g, " ").replace(/\r/g, "");
+const pdfTxt = t => String(t == null ? "" : t).replace(/→/g, "->").replace(/–/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/ /g, " ").replace(/\r/g, "");
 async function pdfLoad(){ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", () => !!(window.jspdf && window.jspdf.jsPDF)); }
-// Escritor con cabecera, pie, saltos de página y bloques
+const pdfLogo = () => { const im = document.querySelector("img.brandlogo") || document.querySelector('img[src^="data:image/png"]'); return im ? im.src : null; };
+// Documento A4 con formato corporativo: logo, cabecera de documento, cabecera corrida en las páginas siguientes, pie con paginación
 class PdfDoc {
-  constructor(title, subtitle){ const { jsPDF } = window.jspdf; this.d = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait", compress:true }); this.title = title; this.subtitle = subtitle; this.page = 0; this.y = 0; this.newPage(); }
-  get x(){ return PDFK.M; } get w(){ return PDFK.W - 2 * PDFK.M; } get bottom(){ return PDFK.H - 16; }
+  constructor(docType, cycleName, runningRight){ const { jsPDF } = window.jspdf; this.d = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait", compress:true });
+    this.docType = docType; this.cycleName = cycleName; this.runningRight = runningRight || ""; this.page = 0; this.y = 0; this.newPage(); }
+  get x(){ return PDFK.M; } get w(){ return PDFK.W - 2 * PDFK.M; } get bottom(){ return PDFK.H - 20; }
   color(c){ this.d.setTextColor(c[0], c[1], c[2]); } fill(c){ this.d.setFillColor(c[0], c[1], c[2]); } stroke(c){ this.d.setDrawColor(c[0], c[1], c[2]); }
-  font(style, size){ this.d.setFont("helvetica", style || "normal"); this.d.setFontSize(size || 10); }
+  font(style, size){ this.d.setFont("helvetica", style || "normal"); this.d.setFontSize(size || 9); }
+  lineH(size){ return size * 0.3528 * 1.38; }
   newPage(){ if(this.page > 0) this.d.addPage(); this.page++;
-    // franja de cabecera
-    this.fill(PDFK.navy); this.d.rect(0, 0, PDFK.W, 16, "F");
-    this.font("bold", 11); this.color(PDFK.white); this.d.text("ABAC", PDFK.M, 10.2);
-    this.font("normal", 8.5); this.d.text("RRHH  ·  Evaluaciones de desempeño", PDFK.M + 13, 10.2);
-    this.font("bold", 9.5); this.d.text(pdfTxt(this.title), PDFK.W - PDFK.M, 8.4, { align:"right" });
-    if(this.subtitle){ this.font("normal", 8); this.d.text(pdfTxt(this.subtitle), PDFK.W - PDFK.M, 12.8, { align:"right" }); }
-    this.y = 24; }
+    if(this.page === 1){
+      // cabecera de documento: logo a la izquierda, tipo de documento a la derecha
+      const logo = pdfLogo(); if(logo){ try{ this.d.addImage(logo, "PNG", this.x, 13, 34, 34 * 138 / 480, undefined, "FAST"); }catch(e){} }
+      this.font("bold", 8); this.color(PDFK.navy); this.d.text(pdfTxt(this.docType).toUpperCase(), PDFK.W - PDFK.M, 16.5, { align:"right", charSpace:0.6 });
+      this.font("normal", 8.5); this.color(PDFK.grey); this.d.text(pdfTxt(this.cycleName), PDFK.W - PDFK.M, 21.5, { align:"right" });
+      this.font("normal", 7); this.color(PDFK.faint); this.d.text("Confidencial  ·  Uso interno", PDFK.W - PDFK.M, 25.5, { align:"right" });
+      this.stroke(PDFK.navy); this.d.setLineWidth(0.5); this.d.line(this.x, 30, this.x + this.w, 30);
+      this.y = 38;
+    } else {
+      // cabecera corrida
+      this.font("normal", 7.5); this.color(PDFK.grey); this.d.text(pdfTxt(`Abac Capital  ·  ${this.cycleName}`), this.x, 13);
+      if(this.runningRight) this.d.text(pdfTxt(this.runningRight), PDFK.W - PDFK.M, 13, { align:"right" });
+      this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, 16, this.x + this.w, 16);
+      this.y = 24;
+    } }
   ensure(h){ if(this.y + h > this.bottom){ this.newPage(); return true; } return false; }
-  lineH(size){ return size * 0.3528 * 1.32; }
-  // título de persona / ciclo (bloque inicial)
-  head(name, line2, right1, right2, line3){
-    const rights = [right1, right2].filter(Boolean); this.font("normal", 8.5); const rw = Math.max(0, ...rights.map(t => this.d.getTextWidth(pdfTxt(t))));
-    this.font("bold", 16); this.color(PDFK.ink); this.d.text(this.d.splitTextToSize(pdfTxt(name), this.w - rw - 6)[0], this.x, this.y + 6);
-    this.font("normal", 9.5); this.color(PDFK.grey); if(line2) this.d.text(this.d.splitTextToSize(pdfTxt(line2), this.w - rw - 6)[0], this.x, this.y + 11.5);
-    this.font("normal", 8.5); rights.forEach((t, i) => this.d.text(pdfTxt(t), PDFK.W - PDFK.M, this.y + 6 + i * 5, { align:"right" }));
-    let h = 16; if(line3){ this.font("normal", 8); this.color(PDFK.faint); this.d.text(this.d.splitTextToSize(pdfTxt(line3), this.w)[0], this.x, this.y + 16); h = 20.5; }
-    this.y += h; this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, this.y, this.x + this.w, this.y); this.y += 6; }
-  // título de sección: versalitas grises con línea
-  section(text){ this.ensure(12); this.font("bold", 8); this.color(PDFK.grey); const t = pdfTxt(text).toUpperCase(); this.d.text(t, this.x, this.y + 3); const tw = this.d.getTextWidth(t); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x + tw + 3, this.y + 2, this.x + this.w, this.y + 2); this.y += 8; }
-  // líneas de texto con salto de página
-  lines(text, size, color, style, x, w, gap){ x = x == null ? this.x : x; w = w == null ? this.w : w; this.font(style || "normal", size); this.color(color || PDFK.ink);
-    const lh = this.lineH(size); const paras = pdfTxt(text).split("\n");
-    for(const p of paras){ const ls = p.trim() === "" ? [""] : this.d.splitTextToSize(p, w); for(const l of ls){ if(this.y + lh > this.bottom){ this.newPage(); this.font(style || "normal", size); this.color(color || PDFK.ink); } this.d.text(l, x, this.y + lh * 0.78); this.y += lh; } }
-    this.y += gap == null ? 1.5 : gap; }
-  // recuadro con etiqueta y texto (fondo suave). Si no cabe entero, sigue en la página siguiente
-  box(label, text, opts){ opts = opts || {}; const pad = 4; const size = opts.size || 9.5; const lh = this.lineH(size); const w = opts.w || this.w; const x = opts.x || this.x;
+  // bloque de título: nombre grande y línea secundaria
+  title(name, sub){ this.font("bold", 15); this.color(PDFK.ink); this.d.text(pdfTxt(name), this.x, this.y + 5.5); this.font("normal", 9); this.color(PDFK.grey); if(sub) this.d.text(pdfTxt(sub), this.x, this.y + 11); this.y += 16; }
+  // ficha de datos: pares etiqueta/valor en dos columnas dentro de un recuadro
+  meta(pairs){ const cols = 2, rows = Math.ceil(pairs.length / cols), rowH = 7.2, pad = 4; const h = pad * 2 + rows * rowH - 1.5; this.ensure(h + 6);
+    this.fill(PDFK.soft); this.stroke(PDFK.line); this.d.setLineWidth(0.25); this.d.roundedRect(this.x, this.y, this.w, h, 1.5, 1.5, "FD");
+    const cw = (this.w - 2 * pad) / cols;
+    pairs.forEach(([k, v], i) => { const col = i % cols, row = Math.floor(i / cols); const cx = this.x + pad + col * cw, cy = this.y + pad + row * rowH;
+      this.font("bold", 6.5); this.color(PDFK.faint); this.d.text(pdfTxt(k).toUpperCase(), cx, cy + 2.2, { charSpace:0.3 });
+      this.font("normal", 8.5); this.color(PDFK.ink); this.d.text(this.d.splitTextToSize(pdfTxt(v || "—"), cw - 4)[0], cx, cy + 5.6); });
+    this.y += h + 6; }
+  // párrafo corrido
+  para(text, size, color){ size = size || 8.5; const lh = this.lineH(size); this.font("normal", size); this.color(color || PDFK.ink);
+    for(const p of pdfTxt(text).split("\n")){ const ls = p.trim() === "" ? [""] : this.d.splitTextToSize(p, this.w); for(const l of ls){ if(this.y + lh > this.bottom){ this.newPage(); this.font("normal", size); this.color(color || PDFK.ink); } this.d.text(l, this.x, this.y + lh * 0.78); this.y += lh; } }
+    this.y += 2; }
+  // título de sección numerado
+  section(num, text){ this.y += 4; if(this.y + 44 > this.bottom) this.newPage(); this.font("bold", 10); this.color(PDFK.navy); this.d.text(pdfTxt(`${num}.  ${text}`), this.x, this.y + 3.6); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, this.y + 6.2, this.x + this.w, this.y + 6.2); this.y += 11; }
+  note(text){ this.font("italic", 7.5); this.color(PDFK.grey); const lh = this.lineH(7.5); for(const l of this.d.splitTextToSize(pdfTxt(text), this.w)){ if(this.y + lh > this.bottom) this.newPage(); this.d.text(l, this.x, this.y + lh * 0.78); this.y += lh; } this.y += 2; }
+  // recuadro con etiqueta y texto; si no cabe entero, continúa en la página siguiente
+  box(label, text, opts){ opts = opts || {}; const pad = 3.5; const size = 8.8; const lh = this.lineH(size); const w = this.w; const x = this.x;
     this.font("normal", size); const body = pdfTxt(text || "—"); const ls = body.split("\n").flatMap(p => p.trim() === "" ? [""] : this.d.splitTextToSize(p, w - 2 * pad));
-    const total = pad + 4.5 + ls.length * lh + pad; const fits = this.y + total <= this.bottom;
-    if(!fits && total < (this.bottom - 24)) this.newPage();
-    const drawBg = (y0, h) => { this.fill(opts.fill || PDFK.soft); this.stroke(opts.border || PDFK.line); this.d.setLineWidth(0.25); this.d.roundedRect(x, y0, w, h, 2, 2, "FD"); };
-    // fondo: si sigue cabiendo en la página lo pintamos entero; si no, por tramos
-    let y0 = this.y; let remain = ls.slice();
-    const first = Math.max(1, Math.floor((this.bottom - y0 - pad - 4.5 - pad) / lh));
-    let chunk = remain.splice(0, Math.min(remain.length, first));
-    drawBg(y0, pad + 4.5 + chunk.length * lh + pad);
-    this.font("bold", 7.5); this.color(PDFK.grey); this.d.text(pdfTxt(label).toUpperCase(), x + pad, y0 + pad + 2);
-    let yy = y0 + pad + 4.5; this.font("normal", size); this.color(text ? PDFK.ink : PDFK.faint);
+    const total = pad + 4 + ls.length * lh + pad;
+    if(this.y + total > this.bottom && total < (this.bottom - 30)) this.newPage();
+    const drawBg = (y0, h) => { this.fill(opts.fill || PDFK.soft); this.stroke(PDFK.line); this.d.setLineWidth(0.25); this.d.roundedRect(x, y0, w, h, 1.5, 1.5, "FD"); };
+    let remain = ls.slice(); const first = Math.max(1, Math.floor((this.bottom - this.y - pad - 4 - pad) / lh)); let chunk = remain.splice(0, Math.min(remain.length, first));
+    drawBg(this.y, pad + 4 + chunk.length * lh + pad);
+    this.font("bold", 6.5); this.color(PDFK.faint); this.d.text(pdfTxt(label).toUpperCase(), x + pad, this.y + pad + 1.8, { charSpace:0.3 });
+    let yy = this.y + pad + 4; this.font("normal", size); this.color(text ? PDFK.ink : PDFK.faint);
     for(const l of chunk){ this.d.text(l, x + pad, yy + lh * 0.78); yy += lh; }
-    this.y = yy + pad + 3;
+    this.y = yy + pad + 4;
     while(remain.length){ this.newPage(); const n = Math.max(1, Math.floor((this.bottom - this.y - 2 * pad) / lh)); chunk = remain.splice(0, Math.min(remain.length, n)); drawBg(this.y, pad + chunk.length * lh + pad); yy = this.y + pad; this.font("normal", size); this.color(PDFK.ink); for(const l of chunk){ this.d.text(l, x + pad, yy + lh * 0.78); yy += lh; } this.y = yy + pad + 3; } }
   image(url, x, y, w, h){ try{ this.d.addImage(url, "PNG", x, y, w, h, undefined, "FAST"); }catch(e){ console.warn("pdf image", e); } }
-  finish(filename){ const n = this.d.getNumberOfPages(); for(let i = 1; i <= n; i++){ this.d.setPage(i); this.font("normal", 7.5); this.color(PDFK.faint);
-      this.d.text("Abac RRHH  ·  Confidencial  ·  Uso interno  ·  Generado el " + new Date().toLocaleDateString("es-ES"), PDFK.M, PDFK.H - 8);
-      this.d.text(`${i} / ${n}`, PDFK.W - PDFK.M, PDFK.H - 8, { align:"right" }); }
+  finish(filename){ const n = this.d.getNumberOfPages(); const stamp = new Date().toLocaleDateString("es-ES") + " " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
+    for(let i = 1; i <= n; i++){ this.d.setPage(i); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, PDFK.H - 14, this.x + this.w, PDFK.H - 14);
+      this.font("normal", 7); this.color(PDFK.faint); this.d.text(pdfTxt("Abac Capital  ·  RRHH  ·  Confidencial  ·  Uso interno  ·  Generado por Abac RRHH el " + stamp), this.x, PDFK.H - 9.5);
+      this.d.text(`Página ${i} de ${n}`, PDFK.W - PDFK.M, PDFK.H - 9.5, { align:"right" }); }
     const blob = this.d.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); return n; }
 }
 // Gráfico Chart.js fuera de pantalla → imagen PNG nítida (3x)
@@ -1100,109 +1110,116 @@ function chartImage(config, wPx, hPx){
   const opts = Object.assign({}, config.options || {}, { responsive:false, animation:false, devicePixelRatio:3 });
   const ch = new Chart(cv, Object.assign({}, config, { options: opts })); const url = cv.toDataURL("image/png"); ch.destroy(); holder.remove(); return url;
 }
-const radarPdfConfig = (labels, W, A, S) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds("Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:4 });
-  return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:4 }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:11 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:12, weight:"600" }, color:"#2b3240" } } },
-    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:10, usePointStyle:true, font:{ size:11 } } }, tooltip:{ enabled:false } } } }; };
-const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"anterior", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:3, maxBarThickness:22, categoryPercentage:0.7, barPercentage:0.9 });
-  datasets.push({ label:"actual", data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:3, maxBarThickness:22, categoryPercentage:0.7, barPercentage:0.9 });
+const radarPdfConfig = (labels, W, A, S) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds("Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:3 });
+  return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:2 }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:11, weight:"600" }, color:"#2b3240" } } },
+    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, usePointStyle:true, font:{ size:10 } } }, tooltip:{ enabled:false } } } }; };
+const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"anterior", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
+  datasets.push({ label:"actual", data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
   const selfIdx = selfScore ? Math.round(selfScore) - 1 : -1;
-  return { type:"bar", data:{ labels:["1","2","3","4","5"], datasets }, plugins:[PCT_PLUGIN, SELF_PLUGIN], options:{ _self:selfScore, layout:{ padding:{ bottom:4, top:6 } }, plugins:{ legend:{ display:false }, tooltip:{ enabled:false } },
-    scales:{ x:{ grid:{ display:false }, ticks:{ font: t => ({ size:12, weight: t.index === selfIdx ? "700" : "400" }), color: t => t.index === selfIdx ? "#d64545" : "#5c6675", padding:4 } }, y:{ beginAtZero:true, grace:"25%", ticks:{ precision:0, font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#eef0f3" } } } } }; };
+  return { type:"bar", data:{ labels:["1","2","3","4","5"], datasets }, plugins:[PCT_PLUGIN, SELF_PLUGIN], options:{ _self:selfScore, layout:{ padding:{ bottom:2, top:8 } }, plugins:{ legend:{ display:false }, tooltip:{ enabled:false } },
+    scales:{ x:{ grid:{ display:false }, ticks:{ font: t => ({ size:11, weight: t.index === selfIdx ? "700" : "400" }), color: t => t.index === selfIdx ? "#d64545" : "#5c6675", padding:3 } }, y:{ beginAtZero:true, grace:"25%", ticks:{ precision:0, font:{ size:9 }, color:"#8a94a6" }, grid:{ color:"#eef0f3" } } } } }; };
 
-// PDF de Mis resultados: la misma información de la pantalla, maquetada
+// PDF de Mis resultados / ficha: documento de resultados de la evaluación
 async function downloadResultsPDF(){
   const view = window.RES_VIEW; if(!view || !view.cur) return;
   toast("Generando el PDF…");
   try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
   try{
     const { cur, prev, dec } = view; const c = cur.c; const fr = cur.fr; const p = person(view.personId) || ME; const tu = p.id === ME.id;
-    const lead = fr && fr.lead_id ? person(fr.lead_id) : null;
-    const pdf = new PdfDoc(c.name, c.period_label || "");
-    pdf.head(fullName(p), [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "), fr ? `Resumen de ${lead ? fullName(lead) : "lead reviewer"}` : "Resultados", fr && fr.sent_at ? `Enviado el ${fmtD(fr.sent_at)}` : "");
-    const objPrev = (pc, pfr) => { if(pfr && pfr.objectives) pdf.box(`Objetivos que ${tu ? "te" : "le"} pusieron en ${pc.name}${pfr.objectives_year ? " (" + pfr.objectives_year + ")" : ""}`, pfr.objectives, { fill:PDFK.white }); };
-    if(c.kind !== '360'){
-      if(dec && dec.fr) objPrev(dec.c, dec.fr);
-      pdf.section("Resumen del lead reviewer");
+    const lead = fr && fr.lead_id ? person(fr.lead_id) : null; const is360 = c.kind === '360';
+    const pdf = new PdfDoc(is360 ? "Performance Evaluation" : "Mid Term Feedback", c.name, fullName(p));
+    pdf.title(fullName(p), [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "));
+    pdf.meta([["Proceso", c.name], ["Periodo evaluado", c.period_label || "—"], ["Lead reviewer", lead ? fullName(lead) : "—"], ["Resumen enviado", fr && fr.sent_at ? fmtD(fr.sent_at) : "Pendiente"], ["Comparado con", prev ? prev.c.name : (dec ? dec.c.name : "—")], ["Documento", "Resultados de la evaluación"]]);
+    pdf.para(is360
+      ? `Este documento recoge los resultados de la evaluación de desempeño de ${fullName(p)} en el proceso ${c.name}: los objetivos que se le fijaron en la evaluación anterior, el balance de su cumplimiento, las puntuaciones recibidas en cada competencia y el resumen final de su lead reviewer. Las puntuaciones agregan las valoraciones de sus compañeros y de su lead reviewer; ninguna opinión individual aparece identificada.`
+      : `Este documento recoge el resumen del Mid Term Feedback de ${fullName(p)} en el proceso ${c.name}, escrito por su lead reviewer a partir de su autoevaluación y del feedback de los compañeros que eligió, junto con los objetivos fijados en la última evaluación de diciembre.`, 8.5, PDFK.grey);
+    const objPrev = (num, pc, pfr) => { pdf.section(num, `Objetivos fijados en ${pc.name}`); pdf.box(`Objectives ${pfr.objectives_year || ""}`, pfr.objectives); };
+    let n = 1;
+    if(!is360){
+      if(dec && dec.fr && dec.fr.objectives){ objPrev(n, dec.c, dec.fr); n++; }
+      pdf.section(n, "Resumen del lead reviewer");
       pdf.box("Reviewer Summary", fr && fr.summary); pdf.box("Top 3 Achievements", fr && fr.positives); pdf.box("Top 3 Areas of Development", fr && fr.development);
     } else {
-      if(prev && prev.fr) objPrev(prev.c, prev.fr);
-      pdf.box("Objectives Recap", fr && fr.recap);
-      // ---- puntuaciones ----
+      if(prev && prev.fr && prev.fr.objectives){ objPrev(n, prev.c, prev.fr); n++; }
+      pdf.section(n, "Objectives Recap"); n++; pdf.box("Balance de los objetivos del año anterior", fr && fr.recap);
       const st = scaleStats(cur.rows), ps = prev ? scaleStats(prev.rows) : null;
       const codes = Object.keys(st).filter(k => k !== "_n"); const hasPrev = !!(ps && Object.keys(ps).some(k => k !== "_n"));
       const yearCur = c.opens_at ? new Date(c.opens_at).getFullYear() : "";
       if(codes.length){
-        pdf.section(`Performance ${yearCur} Summary Scoring`);
+        pdf.section(n, `Performance ${yearCur} Summary Scoring`); n++;
+        pdf.note(`Cada competencia se puntúa de 1 (Very Poor) a 5 (Outstanding). La media ponderada da más peso a las opiniones del mismo equipo y a las de socios y lead reviewer; la media aritmética trata todas las opiniones por igual. La autoevaluación se muestra aparte y no entra en las medias. ${st._n} opiniones este año${hasPrev ? `, ${ps._n} el anterior` : ""}.`);
         const lab = k => st[k].text.replace(/ and accountability| Technical/g, "");
         const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = codes.map(k => +(st[k].sum / st[k].n).toFixed(2)), S = codes.map(k => st[k].self);
-        // dos arañas lado a lado, 86 x 66 mm cada una
-        const rw = (pdf.w - 8) / 2, rh = 66; pdf.ensure(rh + 12);
-        const cap = (t, sub, x) => { pdf.font("bold", 9.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(t), x, pdf.y + 3.5); pdf.font("normal", 7.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(sub), x, pdf.y + 7.5); };
-        cap(c.period_label || c.name, `Media ponderada, media aritmética y ${tu ? "tu" : "su"} autoevaluación · ${st._n} opiniones`, pdf.x);
-        const img1 = chartImage(radarPdfConfig(codes.map(lab), W, A, S), 520, 400);
-        pdf.image(img1, pdf.x, pdf.y + 9, rw, rh - 9);
-        if(hasPrev){ const pc = codes.filter(k => ps[k]); cap(prev.c.period_label || prev.c.name, `Las mismas tres líneas del año anterior · ${ps._n} opiniones`, pdf.x + rw + 8);
-          const img2 = chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum / ps[k].n).toFixed(2)), pc.map(k => ps[k].self)), 520, 400);
-          pdf.image(img2, pdf.x + rw + 8, pdf.y + 9, rw, rh - 9); }
-        else { cap("Año anterior", "Todavía no hay una review anterior con la que comparar", pdf.x + rw + 8); }
-        pdf.y += rh + 4;
-        // barras por nota: 4 por fila, 44 x 34 mm
-        pdf.section("Cuántas opiniones de cada nota");
-        pdf.font("normal", 7.5); pdf.color(PDFK.grey);
-        const legend = []; pdf.fill(PDFK.navy); pdf.d.rect(pdf.x, pdf.y + 0.5, 3, 3, "F"); pdf.d.text(pdfTxt(c.period_label || c.name), pdf.x + 4.5, pdf.y + 3);
-        let lx = pdf.x + 4.5 + pdf.d.getTextWidth(pdfTxt(c.period_label || c.name)) + 6;
-        if(hasPrev){ pdf.fill(PDFK.light); pdf.d.rect(lx, pdf.y + 0.5, 3, 3, "F"); pdf.d.text(pdfTxt(prev.c.period_label || prev.c.name), lx + 4.5, pdf.y + 3); lx += 4.5 + pdf.d.getTextWidth(pdfTxt(prev.c.period_label || prev.c.name)) + 6; }
-        pdf.color(PDFK.red); pdf.d.text(`en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación`, lx, pdf.y + 3); pdf.color(PDFK.grey); pdf.d.text("  ·  el porcentaje es sobre las personas que respondieron ese año", lx + pdf.d.getTextWidth(`en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación`), pdf.y + 3);
-        pdf.y += 6;
-        const cols = 4, gap = 4, cw = (pdf.w - gap * (cols - 1)) / cols, chH = 34, capH = 9, cellH = capH + chH + 4;
-        codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + gap); const y0 = pdf.y;
-          pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 3.2);
-          pdf.font("normal", 7); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(`media ${(st[k].sum / st[k].n).toFixed(2)}${hasPrev && ps[k] ? ` · año anterior ${(ps[k].sum / ps[k].n).toFixed(2)}` : ""}`), x, y0 + 6.8);
-          const img = chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self), 440, 340);
-          pdf.image(img, x, y0 + capH, cw, chH);
+        // dos arañas lado a lado
+        const gap = 6, rw = (pdf.w - gap) / 2, rh = 54; pdf.ensure(rh + 12);
+        const cap = (t, sub, x) => { pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(t), x, pdf.y + 3.2); pdf.font("normal", 7); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(sub), x, pdf.y + 6.8); };
+        cap(c.period_label || c.name, "Media ponderada, media aritmética y autoevaluación", pdf.x);
+        pdf.image(chartImage(radarPdfConfig(codes.map(lab), W, A, S), 560, 360), pdf.x, pdf.y + 8.5, rw, rh - 8.5);
+        if(hasPrev){ const pc = codes.filter(k => ps[k]); cap(prev.c.period_label || prev.c.name, "Las mismas tres líneas del año anterior", pdf.x + rw + gap);
+          pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum / ps[k].n).toFixed(2)), pc.map(k => ps[k].self)), 560, 360), pdf.x + rw + gap, pdf.y + 8.5, rw, rh - 8.5); }
+        else { cap("Año anterior", "Sin una evaluación anterior del mismo tipo con la que comparar", pdf.x + rw + gap); }
+        pdf.y += rh + 9;
+        // distribución de notas: cuatro por fila
+        pdf.ensure(11 + 8 + 27 + 3 + 4); pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text("Distribución de las notas recibidas por competencia", pdf.x, pdf.y + 3.2);   // el título y la primera fila de gráficos van juntos
+        pdf.font("normal", 7); pdf.color(PDFK.grey);
+        let lx = pdf.x; const legend = (col, txt) => { pdf.fill(col); pdf.d.rect(lx, pdf.y + 5.6, 2.6, 2.6, "F"); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(txt), lx + 3.6, pdf.y + 7.8); lx += 3.6 + pdf.d.getTextWidth(pdfTxt(txt)) + 5; };
+        legend(PDFK.navy, c.period_label || c.name); if(hasPrev) legend(PDFK.light, prev.c.period_label || prev.c.name);
+        pdf.color(PDFK.red); pdf.d.text(pdfTxt("En rojo, la nota de la autoevaluación."), lx, pdf.y + 7.8); lx += pdf.d.getTextWidth("En rojo, la nota de la autoevaluación.") + 2;
+        pdf.color(PDFK.grey); pdf.d.text(pdfTxt("El porcentaje es sobre las personas que respondieron ese año."), lx, pdf.y + 7.8);
+        pdf.y += 11;
+        const cols = 4, g2 = 4, cw = (pdf.w - g2 * (cols - 1)) / cols, chH = 27, capH = 8, cellH = capH + chH + 3;
+        codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + g2); const y0 = pdf.y;
+          pdf.font("bold", 7.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 2.8);
+          pdf.font("normal", 6.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(`media ${(st[k].sum / st[k].n).toFixed(2)}${hasPrev && ps[k] ? ` · anterior ${(ps[k].sum / ps[k].n).toFixed(2)}` : ""}`), x, y0 + 6);
+          pdf.image(chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self), 420, 280), x, y0 + capH, cw, chH);
           if(col === cols - 1 || j === codes.length - 1) pdf.y += cellH; });
         pdf.y += 2;
       }
-      pdf.section("Resumen del lead reviewer");
+      pdf.section(n, "Resumen del lead reviewer"); n++;
       const yr = fr && fr.objectives_year ? fr.objectives_year : (yearCur ? yearCur + 1 : "");
       pdf.box("Reviewer Summary", fr && fr.summary); pdf.box("Top Achievements", fr && fr.positives); pdf.box("Top Developments", fr && fr.development);
       if(fr && fr.quotes) pdf.box("Key Quotes from Reviewers", fr.quotes);
       pdf.box(`Objectives ${yr}`, fr && fr.objectives);
     }
-    const n = pdf.finish(`${fullName(p)} - ${c.name}.pdf`);
-    toast(`PDF descargado (${n} página${n > 1 ? "s" : ""})`);
+    const pages = pdf.finish(`Abac - ${is360 ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${c.period_label || c.name}.pdf`);
+    toast(`PDF descargado (${pages} página${pages > 1 ? "s" : ""})`);
   }catch(e){ err(e, "PDF"); }
 }
-// PDF de una respuesta enviada (mi autoevaluación): secciones, preguntas y respuestas
+// PDF de una respuesta enviada (autoevaluación): copia oficial de las respuestas
 async function downloadFormPDF(){
   if(!CUR) return; const { a, form, answers, cycle } = CUR;
   toast("Generando el PDF…");
   try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
   try{
-    const pdf = new PdfDoc(cycle.name, cycle.period_label || "");
-    const p = a.reviewee;
-    pdf.head(a.role === 'self' ? `${fullName(p)} · Autoevaluación` : `${fullName(p)} · ${ROLE_LABEL[a.role]}`, [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "), a.role === 'self' ? "" : `Escrita por ${fullName(a.reviewer)}`, a.submitted_at ? `Enviada el ${fmtDT(a.submitted_at)}` : STATUS_LABEL[a.status], form.name);
-    const groups = questionsFor(form, a.role);
+    const p = a.reviewee; const isSelf = a.role === 'self';
+    const pdf = new PdfDoc(cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback", cycle.name, fullName(p));
+    pdf.title(isSelf ? "Autoevaluación" : ROLE_LABEL[a.role], `${fullName(p)}  ·  ${[p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  ")}`);
+    pdf.meta([["Proceso", cycle.name], ["Periodo evaluado", cycle.period_label || "—"], ["Cuestionario", form.name], ["Escrita por", fullName(a.reviewer)], ["Estado", a.submitted_at ? `Enviada el ${fmtDT(a.submitted_at)}` : STATUS_LABEL[a.status]], ["Documento", "Copia de las respuestas"]]);
+    pdf.para(isSelf
+      ? `Copia de las respuestas que ${fullName(p)} envió en su autoevaluación del proceso ${cycle.name}. Las secciones, las preguntas y su orden son los del cuestionario oficial del equipo ${TEAM_LABEL[p.team] || ""}. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`
+      : `Copia de la valoración que ${fullName(a.reviewer)} envió sobre ${fullName(p)} en el proceso ${cycle.name}, con las secciones y preguntas del cuestionario oficial. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`, 8.5, PDFK.grey);
+    const groups = questionsFor(form, a.role); let n = 1;
     for(const g of groups){
-      pdf.section(g.section.title);
+      pdf.section(n, g.section.title); n++;
+      if(g.section.help) pdf.note(g.section.help);
       for(const q of g.questions){
         const an = answers[q.id] || {};
         if(q.kind === 'scale'){
-          pdf.ensure(11); pdf.font("bold", 9.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(q.text), pdf.x, pdf.y + 3.6);
-          // escala 1-5 con la nota marcada
-          const v = an.value_num; const x0 = pdf.x + pdf.w - 60;
-          for(let i = 1; i <= 5; i++){ const cx = x0 + (i - 1) * 9; if(v === i){ pdf.fill(PDFK.navy); pdf.d.circle(cx, pdf.y + 2.6, 2.6, "F"); pdf.font("bold", 8); pdf.color(PDFK.white); pdf.d.text(String(i), cx, pdf.y + 3.6, { align:"center" }); }
-            else { pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.3); pdf.d.circle(cx, pdf.y + 2.6, 2.6, "S"); pdf.font("normal", 8); pdf.color(PDFK.faint); pdf.d.text(String(i), cx, pdf.y + 3.6, { align:"center" }); } }
-          pdf.font("normal", 8); pdf.color(v ? PDFK.ink : PDFK.faint); pdf.d.text(v ? `${v} / 5` : "sin nota", x0 + 48, pdf.y + 3.6);
-          pdf.y += 9;
+          pdf.ensure(9); const v = an.value_num; const x0 = pdf.x + pdf.w - 52;
+          pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(q.text), pdf.w - 60)[0], pdf.x, pdf.y + 3.3);
+          for(let i = 1; i <= 5; i++){ const cx = x0 + (i - 1) * 7.5; if(v === i){ pdf.fill(PDFK.navy); pdf.d.circle(cx, pdf.y + 2.4, 2.2, "F"); pdf.font("bold", 7); pdf.color(PDFK.white); pdf.d.text(String(i), cx, pdf.y + 3.3, { align:"center" }); }
+            else { pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.3); pdf.d.circle(cx, pdf.y + 2.4, 2.2, "S"); pdf.font("normal", 7); pdf.color(PDFK.faint); pdf.d.text(String(i), cx, pdf.y + 3.3, { align:"center" }); } }
+          pdf.font("normal", 7.5); pdf.color(v ? PDFK.ink : PDFK.faint); pdf.d.text(v ? `${v} / 5` : "sin nota", x0 + 40, pdf.y + 3.3);
+          pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.2); pdf.d.line(pdf.x, pdf.y + 6.6, pdf.x + pdf.w, pdf.y + 6.6);
+          pdf.y += 8;
         } else {
-          pdf.box(q.text, (an.value_text || "").trim() || null, { fill: PDFK.soft });
+          pdf.box(q.text, (an.value_text || "").trim() || null);
         }
       }
-      pdf.y += 2;
+      pdf.y += 1;
     }
-    const n = pdf.finish(`${fullName(p)} - ${cycle.name} - ${a.role === 'self' ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf`);
-    toast(`PDF descargado (${n} página${n > 1 ? "s" : ""})`);
+    const pages = pdf.finish(`Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf`);
+    toast(`PDF descargado (${pages} página${pages > 1 ? "s" : ""})`);
   }catch(e){ err(e, "PDF"); }
 }
 function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
