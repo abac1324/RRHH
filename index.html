@@ -1081,7 +1081,7 @@ class PdfDoc {
     for(const p of pdfTxt(text).split("\n")){ const ls = p.trim() === "" ? [""] : this.d.splitTextToSize(p, this.w); for(const l of ls){ if(this.y + lh > this.bottom){ this.newPage(); this.font("normal", size); this.color(color || PDFK.ink); } this.d.text(l, this.x, this.y + lh * 0.78); this.y += lh; } }
     this.y += 2; }
   // título de sección numerado
-  section(num, text){ this.y += 4; if(this.y + 44 > this.bottom) this.newPage(); this.font("bold", 10); this.color(PDFK.navy); this.d.text(pdfTxt(`${num}.  ${text}`), this.x, this.y + 3.6); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, this.y + 6.2, this.x + this.w, this.y + 6.2); this.y += 11; }
+  section(num, text, need){ this.y += 10; if(this.y + (need || 48) > this.bottom) this.newPage(); this.font("bold", 10); this.color(PDFK.navy); this.d.text(pdfTxt(`${num}.  ${text}`), this.x, this.y + 3.6); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, this.y + 6.2, this.x + this.w, this.y + 6.2); this.y += 12; }
   note(text){ this.font("italic", 7.5); this.color(PDFK.grey); const lh = this.lineH(7.5); for(const l of this.d.splitTextToSize(pdfTxt(text), this.w)){ if(this.y + lh > this.bottom) this.newPage(); this.d.text(l, this.x, this.y + lh * 0.78); this.y += lh; } this.y += 2; }
   // recuadro con etiqueta y texto; si no cabe entero, continúa en la página siguiente
   box(label, text, opts){ opts = opts || {}; const pad = 3.5; const size = 8.8; const lh = this.lineH(size); const w = this.w; const x = this.x;
@@ -1146,7 +1146,7 @@ async function downloadResultsPDF(){
       const codes = Object.keys(st).filter(k => k !== "_n"); const hasPrev = !!(ps && Object.keys(ps).some(k => k !== "_n"));
       const yearCur = c.opens_at ? new Date(c.opens_at).getFullYear() : "";
       if(codes.length){
-        pdf.section(n, `Performance ${yearCur} Summary Scoring`); n++;
+        pdf.section(n, `Performance ${yearCur} Summary Scoring`, 100); n++;
         pdf.note(`Cada competencia se puntúa de 1 (Very Poor) a 5 (Outstanding). La media ponderada da más peso a las opiniones del mismo equipo y a las de socios y lead reviewer; la media aritmética trata todas las opiniones por igual. La autoevaluación se muestra aparte y no entra en las medias. ${st._n} opiniones este año${hasPrev ? `, ${ps._n} el anterior` : ""}.`);
         const lab = k => st[k].text.replace(/ and accountability| Technical/g, "");
         const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = codes.map(k => +(st[k].sum / st[k].n).toFixed(2)), S = codes.map(k => st[k].self);
@@ -1158,9 +1158,10 @@ async function downloadResultsPDF(){
         if(hasPrev){ const pc = codes.filter(k => ps[k]); cap(prev.c.period_label || prev.c.name, "Las mismas tres líneas del año anterior", pdf.x + rw + gap);
           pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum / ps[k].n).toFixed(2)), pc.map(k => ps[k].self)), 560, 360), pdf.x + rw + gap, pdf.y + 8.5, rw, rh - 8.5); }
         else { cap("Año anterior", "Sin una evaluación anterior del mismo tipo con la que comparar", pdf.x + rw + gap); }
-        pdf.y += rh + 9;
-        // distribución de notas: cuatro por fila
-        pdf.ensure(11 + 8 + 27 + 3 + 4); pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text("Distribución de las notas recibidas por competencia", pdf.x, pdf.y + 3.2);   // el título y la primera fila de gráficos van juntos
+        pdf.y += rh + 14;
+        // distribución de notas: bloque aparte dentro del apartado, con su propio subtítulo; el subtítulo y la primera fila de gráficos van juntos
+        pdf.ensure(14 + 8 + 27 + 3 + 4); pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.2); pdf.d.line(pdf.x, pdf.y - 5, pdf.x + pdf.w, pdf.y - 5);
+        pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text("Distribución de las notas recibidas por competencia", pdf.x, pdf.y + 3.2);
         pdf.font("normal", 7); pdf.color(PDFK.grey);
         let lx = pdf.x; const legend = (col, txt) => { pdf.fill(col); pdf.d.rect(lx, pdf.y + 5.6, 2.6, 2.6, "F"); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(txt), lx + 3.6, pdf.y + 7.8); lx += 3.6 + pdf.d.getTextWidth(pdfTxt(txt)) + 5; };
         legend(PDFK.navy, c.period_label || c.name); if(hasPrev) legend(PDFK.light, prev.c.period_label || prev.c.name);
@@ -1211,8 +1212,9 @@ async function downloadFormPDF(){
             else { pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.3); pdf.d.circle(cx, pdf.y + 2.4, 2.2, "S"); pdf.font("normal", 7); pdf.color(PDFK.faint); pdf.d.text(String(i), cx, pdf.y + 3.3, { align:"center" }); } }
           pdf.font("normal", 7.5); pdf.color(v ? PDFK.ink : PDFK.faint); pdf.d.text(v ? `${v} / 5` : "sin nota", x0 + 40, pdf.y + 3.3);
           pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.2); pdf.d.line(pdf.x, pdf.y + 6.6, pdf.x + pdf.w, pdf.y + 6.6);
-          pdf.y += 8;
+          pdf.y += 8.5; pdf._afterScale = true;
         } else {
+          if(pdf._afterScale){ pdf.y += 3; pdf._afterScale = false; }
           pdf.box(q.text, (an.value_text || "").trim() || null);
         }
       }
