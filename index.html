@@ -710,7 +710,7 @@ async function reload(){ progress(true); try{ await loadCatalog(); await render(
 const NAV = [
   {grp:"Reviews"},
   {id:"tasks",   ic:"clipboard-check", label:"Mis reviews"},
-  {id:"results", ic:"chart-radar",     label:"Mis resultados"},
+  {id:"results", ic:"chart-radar",     label:"Mis resultados", show:()=>isEvaluated(ME)},   // a quien no se evalúa (socios) no le sale: siempre estaría vacía (Hugo, 10-sep-2026)
   {id:"team",    ic:"users",           label:"Lead Reviewer", show:()=>hasLeadRole()},
   {grp:"Firma"},
   {id:"partners",ic:"eye",             label:"Todas las reviews", show:()=>canSeeAll()},
@@ -792,7 +792,11 @@ PAGES.tasks = async function(){
   TASKS_BADGE = pending.length;
   const byCycle = {};
   for(const a of all){ (byCycle[a.cycle_id] ||= []).push(a); }
-  const cyclesSorted = CYCLES.filter(c => byCycle[c.id]);
+  // Diciembre (360): solo se lista el ciclo más reciente; lo respondido en el diciembre anterior se abre con «Ver 20XX» en cada fila
+  // (Hugo, 10-sep-2026: son muchas reviews y el listado entero del año anterior sobraba). Junio (cascada) se lista entero: cambian las personas.
+  const decs = CYCLES.filter(c => byCycle[c.id] && c.kind === '360').sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""));
+  const cyclesSorted = CYCLES.filter(c => byCycle[c.id] && (c.kind !== '360' || c.id === (decs[0]||{}).id));
+  const prevDecOf = c => CYCLES.filter(x => x.kind === '360' && x.id !== c.id && (x.opens_at||"") < (c.opens_at||"")).sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""))[0] || null;
   return `
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hola, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div>
     <span style="flex:1"></span>${all.some(a => a.status === 'submitted') ? `<button class="btn sm" onclick="exportMyReviewsExcel()" title="Todas las reviews que has enviado, una hoja por ciclo"><i class="ti ti-file-spreadsheet"></i> Excel de mis reviews</button>` : ""}</div>
@@ -803,16 +807,19 @@ PAGES.tasks = async function(){
   </div>
   ${cyclesSorted.length ? cyclesSorted.map(c => {
     const list = byCycle[c.id];
+    const prevC = c.kind === '360' ? prevDecOf(c) : null, prevList = prevC ? (byCycle[prevC.id] || []) : [], prevYear = prevC ? (prevC.opens_at || "").slice(0, 4) : "";
+    const prevOf = a => prevList.find(x => x.reviewee_id === a.reviewee_id && x.role === a.role && x.status === 'submitted') || prevList.find(x => x.reviewee_id === a.reviewee_id && x.status === 'submitted') || null;
     const needPick = c.status==='open' && (c.visibility||{}).reviewee_picks && list.some(a=>a.role==='self') && !PICKED[c.id];
     return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-clipboard-check"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':c.status==='published'?'':'gray'}">${CYCLE_STATUS[c.status]}</span> ${c.closes_at?`<span class="xs mut">cierra ${fmtD(c.closes_at)}</span>`:""}</span></h3>
      ${needPick ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-users-plus"></i> <span style="flex:1">En este ciclo eliges tú a los 2-3 compañeros que te dan feedback. Se hace desde tu autoevaluación.</span><button class="btn sm pri" onclick="go('form','${list.find(a=>a.role==='self').id}')">Elegir ahora</button></div>` : ""}
+     ${prevC ? `<div class="xs mut" style="margin:-4px 0 10px">Lo que respondiste en ${esc(prevC.name)} está en el botón «Ver ${prevYear}» de cada persona.</div>` : ""}
      <table><tr><th>Persona</th><th>Tipo de review</th><th>Formulario</th><th>Estado</th><th></th></tr>
      ${list.sort((a,b)=>(a.role==='self'?0:a.role==='lead'?1:2)-(b.role==='self'?0:b.role==='lead'?1:2)).map(a => { const f = byId(FORMS, a.form_id); return `<tr>
         <td class="row">${av(a.reviewee,"sm")} ${a.role==='self' ? "<b>Yo</b>" : esc(fullName(a.reviewee))}</td>
         <td><span class="pill ${a.role==='self'?'':a.role==='lead'?'ok':'warn'}">${ROLE_LABEL[a.role]}</span></td>
         <td class="sm mut">${esc(f?f.name:"—")}</td>
         <td>${a.status==='submitted'?`<span class="y">Enviada</span> <span class="xs mut">${fmtD(a.submitted_at)}</span>`:a.status==='draft'?`<span class="p">Borrador</span>`:`<span class="mut">Pendiente</span>`}</td>
-        <td style="text-align:right">${a.status!=='submitted'&&c.status!=='open'?`<span class="xs mut" style="margin-right:8px">se abrirá pronto</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'Ver':c.status==='open'?(a.status==='draft'?'Continuar':'Empezar'):'Ver'}</button></td></tr>`; }).join("")}
+        <td style="text-align:right">${prevC ? (pa => pa ? `<button class="btn sm ghost" style="margin-right:6px" title="Tu respuesta sobre esta persona en ${esc(prevC.name)}" onclick="go('form','${pa.id}')"><i class="ti ti-history"></i> Ver ${prevYear}</button>` : `<span class="xs mut" style="margin-right:10px">Sin respuesta ${prevYear}</span>`)(prevOf(a)) : ""}${a.status!=='submitted'&&c.status!=='open'?`<span class="xs mut" style="margin-right:8px">se abrirá pronto</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'Ver':c.status==='open'?(a.status==='draft'?'Continuar':'Empezar'):'Ver'}</button></td></tr>`; }).join("")}
      </table></div>`; }).join("")
    : `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-clipboard-check"></i></div><div class="t">No tienes reviews asignadas</div><div class="d">Cuando se abra un ciclo de evaluación, aquí aparecerán tu autoevaluación y las reviews de tus compañeros que te toque completar.</div>${isAdmin()?`<button class="btn pri" style="margin-top:14px" onclick="go('admin')"><i class="ti ti-plus"></i> Crear un ciclo</button>`:""}</div></div>`}`;
 };
@@ -854,11 +861,11 @@ PAGES.form = async function(id){
     <div style="flex:1"><div class="hd">${a.role==='self' ? "Mi autoevaluación" : esc(fullName(a.reviewee))}</div>
       <div class="mut sm">${esc(a.reviewee.position||"")} · ${TEAM_LABEL[a.reviewee.team]||""} · <span class="pill ${a.role==='self'?'':a.role==='lead'?'ok':'warn'}">${ROLE_LABEL[a.role]}</span> · ${esc(form.name)}</div></div>
     <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">${mine && a.role==='self' && a.status==='submitted' ? `<button class="btn sm nopdf" onclick="downloadFormPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>` : ""}<div class="pill ${a.status==='submitted'?'ok':a.status==='draft'?'warn':'gray'}">${STATUS_LABEL[a.status]}</div>${a.submitted_at?`<div class="xs mut">${fmtDT(a.submitted_at)}</div>`:""}</div></div>
-    ${form.intro ? `<div class="hint" style="margin-top:12px">${esc(form.intro)}</div>` : ""}
+    ${""/* la introducción del cuestionario (form.intro, «Welcome to Performance Evaluation…») no se enseña nunca (Hugo, 10-sep-2026) */}
     ${!mine ? `<div class="alert info" style="margin-top:12px"><i class="ti ti-eye"></i> Estás viendo la evaluación escrita por <b>${esc(fullName(a.reviewer))}</b>.</div>` : ""}
     ${mine && a.status !== "submitted" && cycle.status !== "open" ? `<div class="alert warn" style="margin-top:12px"><i class="ti ti-lock"></i> <span style="flex:1">Este ciclo todavía no está abierto (${CYCLE_STATUS[cycle.status].toLowerCase()}). Podrás responder cuando administración lo abra.</span>${isAdmin()?`<button class="btn sm pri" onclick="openCycleNow('${cycle.id}','${a.id}')"><i class="ti ti-lock-open"></i> Abrir el ciclo ahora</button>`:""}</div>` : ""}
     ${mine && a.role==='peer' ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Tu respuesta no la verá ningún otro compañero ni la persona evaluada: la leen solo su lead reviewer y los socios con acceso. La persona recibe únicamente el resumen final de su lead.</div>` : ""}
-    ${mine && a.status === "submitted" ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Respuesta enviada. Si necesitas corregir algo, pídelo a administración: pueden reabrirla mientras el ciclo esté abierto.</div>` : ""}
+    ${mine && a.status === "submitted" ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> Respuesta enviada. Si necesitas corregir algo, pídelo a un administrador: pueden reabrirla mientras el ciclo esté abierto.</div>` : ""}
   </div>`;
 
   const body = editable ? renderEditable(groups) : renderReadonly(form, a.role, ans);
@@ -1329,7 +1336,8 @@ PAGES.team = async function(){
   const { data:frs } = await sb.from("final_reviews").select("*").in("cycle_id", Object.keys(byCycle));
   const { data:rels } = await sb.from("releases").select("*").in("cycle_id", Object.keys(byCycle));
   let html = "";
-  for(const cid of Object.keys(byCycle)){
+  // ciclos del más reciente al más antiguo (diciembre 202x, junio 202x, diciembre 202x-1…), como CYCLES (Hugo, 10-sep-2026)
+  for(const cid of CYCLES.filter(c => byCycle[c.id]).map(c => c.id)){
     const c = byId(CYCLES, cid); const { data:prog } = await sb.rpc("cycle_progress", { p_cycle: cid });
     html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(c.name)} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}', null, {summary:false})"><i class="ti ti-file-spreadsheet"></i> Excel de mis evaluados</button></span></h3>
       <table><tr><th>Persona</th><th>Autoevaluación</th><th>Compañeros</th><th>Mi valoración</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
