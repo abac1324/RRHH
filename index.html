@@ -1407,8 +1407,14 @@ const XL = (() => {
   const title = (ws, r, text, size) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { bold:true, size: size || 14, color:{ argb:NAVY } }; };
   const sub = (ws, r, text) => { const cell = ws.getCell(r, 1); cell.value = text; cell.font = { size:10, color:{ argb:GREY } }; };
   const num = (cell, v, dec) => { if(v == null || Number.isNaN(v)) { cell.value = "—"; cell.alignment = { horizontal:"center" }; return; } cell.value = dec ? Math.round(v * 10) / 10 : v; cell.numFmt = dec ? "0.0" : "0"; cell.alignment = { horizontal:"center" }; };
-  return { NAVY, SOFT, MID, LINE, GREY, box, headRow, title, sub, num };
+  // «—» en gris: la pregunta no está en el cuestionario de quien responde (no es una respuesta vacía)
+  const na = cell => { cell.value = "—"; cell.font = { italic:true, size:9, color:{ argb:"FFB0B7C3" } }; cell.alignment = { horizontal:"center", vertical:"top" }; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFF6F7F9" } }; };
+  return { NAVY, SOFT, MID, LINE, GREY, box, headRow, title, sub, num, na };
 })();
+// Preguntas que responde una asignación (su cuestionario y su rol), en el orden del formulario; y la unión sin repetir códigos de varias
+function formQuestionsFor(formId, role){ const f = byId(FORMS, formId); return f ? questionsFor(f, role).flatMap(g => g.questions) : []; }
+function unionQuestions(list){ const out = [], seen = new Set(); for(const a of list) for(const qq of formQuestionsFor(a.form_id, a.role)){ if(seen.has(qq.code)) continue; seen.add(qq.code); out.push(qq); } return out; }
+const codesOf = a => new Set(formQuestionsFor(a.form_id, a.role).map(q => q.code));
 // Nombres de hoja válidos (31 caracteres, sin []:*?/\) y sin repetir
 function sheetNamer(){ const used = new Set(); return raw => { let n = String(raw).replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(used.has(k)) k = n.slice(0, 28) + " " + (i++); used.add(k); return k; }; }
 // Excel de todas las reviews que YO he enviado (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden
@@ -1424,10 +1430,9 @@ async function buildMyReviewsWorkbook(){
   const cycles = CYCLES.filter(c => all.some(a => a.cycle_id === c.id));
   for(const c of cycles){
     const list = all.filter(a => a.cycle_id === c.id).sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewee).localeCompare(fullName(y.reviewee)));
-    const allQ = []; const seen = new Set();
-    for(const cf of (c.cycle_forms||[])){ const f = byId(FORMS, cf.form_id); if(!f) continue; for(const sec of f.form_sections) for(const qq of sec.questions){ if(seen.has(qq.code)) continue; seen.add(qq.code); allQ.push(qq); } }
+    const allQ = unionQuestions(list);   // solo las preguntas de los cuestionarios que he respondido en este ciclo
     const ws = wb.addWorksheet(sheetName(c.period_label || c.name), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
-    title(ws, 1, c.name, 16); sub(ws, 2, `Mis reviews enviadas · ${fullName(ME)} · exportado el ${fmtD(new Date())}`);
+    title(ws, 1, c.name, 16); sub(ws, 2, `Mis reviews enviadas · ${fullName(ME)} · exportado el ${fmtD(new Date())} · «—» = esa pregunta no está en el cuestionario de esa review`);
     const FIRST = 5, TXT_W = 46, SC_W = 13;
     const head = ["Persona evaluada", "Equipo", "Tipo de review", "Enviada"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
     headRow(ws, 4, head, 4); ws.getRow(4).height = 48; let r = 5;
@@ -1439,7 +1444,7 @@ async function buildMyReviewsWorkbook(){
       row.getCell(3).value = ROLE_LABEL[a.role]; row.getCell(3).font = { size:9, color:{ argb:GREY } }; row.getCell(3).alignment = { vertical:"top" };
       row.getCell(4).value = a.submitted_at ? fmtD(a.submitted_at) : ""; row.getCell(4).alignment = { vertical:"top", horizontal:"center" };
       let lines = 1;
-      allQ.forEach((qq, j) => { const v = by[qq.code]; const cell = row.getCell(FIRST + j); const ok = v != null && String(v).trim() !== "";
+      const mine = codesOf(a); allQ.forEach((qq, j) => { const cell = row.getCell(FIRST + j); if(!mine.has(qq.code)){ XL.na(cell); return; } const v = by[qq.code]; const ok = v != null && String(v).trim() !== "";
         if(qq.kind === 'scale'){ num(cell, ok ? Number(v) : null, false); cell.alignment = { horizontal:"center", vertical:"top" }; }
         else { cell.value = ok ? String(v) : ""; cell.alignment = { wrapText:true, vertical:"top" }; if(ok) lines = Math.max(lines, Math.ceil(String(v).length / (TXT_W * 1.05)) + String(v).split("\n").length - 1); } });
       row.height = Math.min(300, Math.max(18, lines * 15 + 4));
@@ -1509,9 +1514,10 @@ async function buildCycleWorkbook(cycleId, revieweeId, opts){
     const list = byReviewee[p.id].slice().sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewer).localeCompare(fullName(y.reviewer)));
     const opinions = list.filter(a => a.role !== 'self'), selfA = list.find(a => a.role === 'self');
     const lead = list.find(a => a.role === 'lead'); const st = stats[p.id];
+    const allQ = unionQuestions([selfA, ...opinions].filter(Boolean));   // las preguntas de SUS cuestionarios (autoevaluación primero), no los diez del ciclo
     const ws = wb.addWorksheet(sheetName(`${p.last_name}, ${p.first_name}`), { views:[{ state:"frozen", xSplit:1, ySplit:6 }] });
     title(ws, 1, fullName(p), 16); sub(ws, 2, [TEAM_LABEL[p.team], p.position].filter(Boolean).join(" · "));
-    sub(ws, 3, `${c.name}${c.period_label ? " · " + c.period_label : ""} · Lead reviewer: ${lead ? fullName(lead.reviewer) : "—"} · ${opinions.length} ${opinions.length === 1 ? "opinión" : "opiniones"}`);
+    sub(ws, 3, `${c.name}${c.period_label ? " · " + c.period_label : ""} · Lead reviewer: ${lead ? fullName(lead.reviewer) : "—"} · ${opinions.length} ${opinions.length === 1 ? "opinión" : "opiniones"} · «—» = esa pregunta no está en el cuestionario de quien responde`);
     let r = 6;
     // UNA tabla ancha: evaluador, rol, peso y todas las preguntas del ciclo en su orden (puntuaciones y textos mezclados como en el formulario)
     const FIRST = 4, TXT_W = 46, SC_W = 13;
@@ -1523,7 +1529,7 @@ async function buildCycleWorkbook(cycleId, revieweeId, opts){
       row.getCell(2).value = ROLE_LABEL[a.role] + (a.reviewer.team && !isSelf ? " · " + (TEAM_LABEL[a.reviewer.team]||"") : ""); row.getCell(2).font = { size:9, color:{ argb:GREY } }; row.getCell(2).alignment = { vertical:"top", wrapText:true };
       if(isSelf){ row.getCell(3).value = "—"; row.getCell(3).alignment = { horizontal:"center", vertical:"top" }; } else num(row.getCell(3), reviewWeight(p, a.reviewer, a.role), false), row.getCell(3).alignment = { horizontal:"center", vertical:"top" };
       let lines = 1;
-      allQ.forEach((qq, j) => { const v = by[qq.code]; const cell = row.getCell(FIRST + j); const ok = v != null && String(v).trim() !== "";
+      const mine = codesOf(a); allQ.forEach((qq, j) => { const cell = row.getCell(FIRST + j); if(!mine.has(qq.code)){ XL.na(cell); return; } const v = by[qq.code]; const ok = v != null && String(v).trim() !== "";
         if(qq.kind === 'scale'){ num(cell, ok ? Number(v) : null, false); cell.alignment = { horizontal:"center", vertical:"top" }; }
         else { cell.value = ok ? String(v) : ""; cell.alignment = { wrapText:true, vertical:"top" }; if(ok) lines = Math.max(lines, Math.ceil(String(v).length / (TXT_W * 1.05)) + String(v).split("\n").length - 1); } });
       row.height = Math.min(300, Math.max(18, lines * 15 + 4));
