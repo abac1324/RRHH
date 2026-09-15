@@ -332,6 +332,7 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.55;cursor:pointer}
 .qtable td{padding:0 8px 0 0;border:none;vertical-align:middle;font-size:13px}
 .qtable td:first-child{width:46%;color:var(--text)}
 .qtable td:first-child b{color:var(--ink)}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--teal);border-radius:50%;animation:spin .7s linear infinite;flex:none}@keyframes spin{to{transform:rotate(360deg)}}
 .imp-map{display:flex;flex-wrap:wrap;gap:8px 16px;margin:10px 0 4px}.imp-map .col{display:flex;flex-direction:column;gap:3px}.imp-map .col .xs{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imp-tbl{width:100%;border-collapse:collapse;font-size:12.5px}.imp-tbl th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}.imp-tbl td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}.imp-tbl .who{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.imp-tbl .del{text-decoration:line-through;color:var(--muted)}
 input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align:center;margin:0 4px;vertical-align:middle}
@@ -770,11 +771,12 @@ async function render(soft){
    ============================================================================ */
 const ASSIGN_SELECT = "*, reviewee:people!assignments_reviewee_id_fkey(id,first_name,last_name,team,position,email), reviewer:people!assignments_reviewer_id_fkey(id,first_name,last_name,team,position,email)";
 
-async function myAssignments(){
-  const { data, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("reviewer_id", ME.id).order("created_at");
+async function assignmentsOf(reviewerId){
+  const { data, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("reviewer_id", reviewerId).order("created_at");
   if(error) throw error;
   return data;
 }
+const myAssignments = () => assignmentsOf(ME.id);
 async function refreshLeadCache(){
   const { data, error } = await sb.from("assignments").select("id").eq("reviewer_id", ME.id).eq("role","lead").limit(1);
   if(error) throw error;
@@ -966,27 +968,37 @@ async function doSubmit(){
 // Objetivos que le pusieron en el último diciembre anterior al ciclo (autoevaluación, ficha del lead y Mis resultados)
 const prevObjHTML = (c, fr, who) => `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objetivos que ${who === 'me' ? "te pusieron" : "le pusieron"} en ${esc(c.name)} <span class="pill gray" style="margin-left:auto">${fr.objectives_year||""}</span></div><div class="v">${esc(fr.objectives)}</div></div>`;
 async function prevObjectivesBlock(personId, cycle, who){
-  const { data:frs } = await sb.from("final_reviews").select("cycle_id,objectives,objectives_year,status").eq("reviewee_id", personId).eq("status", "sent");
+  const { data:frs } = await sb.from("final_reviews").select("cycle_id,objectives,objectives_year").eq("reviewee_id", personId);   // la base de datos solo devuelve los resúmenes ya mostrados (o los de mis evaluados)
   if(!frs || !frs.length) return "";
   const before = cycle.kind === '360' ? (x => (x.opens_at||"") < (cycle.opens_at||"")) : (x => (x.opens_at||"") <= (cycle.opens_at||"9999"));
   const decs = CYCLES.filter(x => x.kind === '360' && x.id !== cycle.id && before(x)).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
   for(const dc of decs){ const fr = frs.find(f => f.cycle_id === dc.id && f.objectives); if(fr) return prevObjHTML(dc, fr, who); }
   return "";
 }
+// Media de peers: la media ponderada de las notas que recibieron las demás personas del mismo rango del Deal Team (SQL 23).
+// Solo Deal Team; en Operations y Nest la segunda línea de la araña sigue siendo la media aritmética.
+async function peerBandOf(personId, cycleId){
+  const p = person(personId); if(!p || p.team !== 'deal') return null;
+  const { data, error } = await sb.rpc("peer_band_avg", { p_cycle: cycleId, p_reviewee: personId });
+  if(error || !data || !data.length) return null;
+  const byCode = {}; let label = "", n = 0;
+  for(const r of data){ byCode[r.question_code] = r.avg_w == null ? null : Number(r.avg_w); label = r.band; n = r.n_people; }
+  return n ? { label, n, byCode } : null;
+}
 async function buildResultsView(personId, cycleId, fetchRows){
   const c = byId(CYCLES, cycleId); if(!c) return null;
   const { data:frs } = await sb.from("final_reviews").select("*").eq("reviewee_id", personId);
-  const fr = (frs||[]).find(f => f.cycle_id === c.id && f.status === 'sent');
-  const cur = { c, rows: await fetchRows(c.id), fr };
+  const fr = (frs||[]).find(f => f.cycle_id === c.id);   // sin filtro de estado: el resumen ya no se cierra (SQL 22)
+  const cur = { c, rows: await fetchRows(c.id), fr, band: c.kind === '360' ? await peerBandOf(personId, c.id) : null };
   let prev = null, dec = null;
   if(c.kind === '360'){
     // Diciembre: comparar con el diciembre anterior (arañas, barras y objetivos que le pusieron)
     const prevC = CYCLES.filter(x => x.kind === '360' && (x.opens_at||"") < (c.opens_at||"")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
-    for(const pc of prevC){ const rows = await fetchRows(pc.id); const pfr = (frs||[]).find(f => f.cycle_id === pc.id && f.status === 'sent'); if((rows && rows.length) || pfr){ prev = { c:pc, rows: rows||[], fr:pfr }; break; } }
+    for(const pc of prevC){ const rows = await fetchRows(pc.id); const pfr = (frs||[]).find(f => f.cycle_id === pc.id); if((rows && rows.length) || pfr){ prev = { c:pc, rows: rows||[], fr:pfr, band: await peerBandOf(personId, pc.id) }; break; } }
   } else {
     // Junio: los objetivos del último diciembre (el año no ha acabado y son los mismos objetivos)
     const decs = CYCLES.filter(x => x.kind === '360' && (x.opens_at||"") <= (c.opens_at||"9999")).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
-    for(const dc of decs){ const dfr = (frs||[]).find(f => f.cycle_id === dc.id && f.status === 'sent' && f.objectives); if(dfr){ dec = { c:dc, fr:dfr }; break; } }
+    for(const dc of decs){ const dfr = (frs||[]).find(f => f.cycle_id === dc.id && f.objectives); if(dfr){ dec = { c:dc, fr:dfr }; break; } }
   }
   return { cur, prev, dec, personId };
 }
@@ -1012,7 +1024,7 @@ function resultsHTML(view, who, edit){
   const yr = fr && fr.objectives_year ? fr.objectives_year : (yearCur ? yearCur + 1 : "");
   const prevObj = prev && prev.fr && prev.fr.objectives ? prevObjHTML(prev.c, prev.fr, who) : "";
   const scoring = hasScales ? `<div class="radars" style="margin-bottom:18px">
-      <div class="radar"><h4>${esc(c.period_label||c.name)}</h4><div class="sub">Media ponderada, media aritmética y ${tu ? "tu" : "su"} autoevaluación · ${stats._n} opiniones</div><div class="box"><canvas id="rad_cur"></canvas></div></div>
+      <div class="radar"><h4>${esc(c.period_label||c.name)}</h4><div class="sub">Media ponderada, ${cur.band ? `media de peers (${esc(cur.band.label)})` : "media aritmética"} y ${tu ? "tu" : "su"} autoevaluación · ${stats._n} opiniones</div><div class="box"><canvas id="rad_cur"></canvas></div></div>
       <div class="radar"><h4>${prev ? esc(prev.c.period_label||prev.c.name) : "Año anterior"}</h4>${hasPrev ? `<div class="sub">Las mismas tres líneas del año anterior · ${pstats._n} opiniones</div><div class="box"><canvas id="rad_prev"></canvas></div>` : `<div class="empty-mini">Todavía no hay una review anterior del mismo tipo con la que comparar.</div>`}</div></div>
       <div class="res-sub">Cuántas opiniones de cada nota <span class="res-note">· en rojo, la nota de ${tu ? "tu" : "su"} autoevaluación · el porcentaje es sobre las personas que respondieron ese año</span></div>
       ${hasPrev ? `<div class="legend" style="margin:-4px 0 10px"><span><i style="background:#0e2150"></i>${esc(c.period_label||c.name)}</span><span><i style="background:#a9cdf4"></i>${esc(prev.c.period_label||prev.c.name)}</span></div>` : ""}
@@ -1034,7 +1046,7 @@ PAGES.results = async function(){
   // marcar como visto (quita el aviso de «ya puedes ver tus resultados»)
   const r0 = rel.find(r => r.cycle_id === c.id); if(r0 && !r0.acknowledged_at) sb.from("releases").update({ acknowledged_at: new Date().toISOString() }).eq("cycle_id", c.id).eq("reviewee_id", ME.id).then(()=>{});
   return `<div class="card" id="resCard">
-    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.sent_at)}` : `Resultados mostrados`}</div></div>${view.prev ? `<span class="pill gray">comparado con ${esc(view.prev.c.period_label||view.prev.c.name)}</span>` : ""}<button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button></div>
+    <div class="res-head"><div style="flex:1"><div class="t">${esc(c.name)}</div><div class="s">${fr ? `Resumen de ${esc(lead ? fullName(lead) : "tu lead reviewer")} · ${fmtD(fr.updated_at)}` : `Resultados mostrados`}</div></div>${view.prev ? `<span class="pill gray">comparado con ${esc(view.prev.c.period_label||view.prev.c.name)}</span>` : ""}<button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button></div>
     ${resultsHTML(view, 'me')}
   </div>`;
 };
@@ -1109,11 +1121,14 @@ class PdfDoc {
     this.y = yy + pad + 4;
     while(remain.length){ this.newPage(); const n = Math.max(1, Math.floor((this.bottom - this.y - 2 * pad) / lh)); chunk = remain.splice(0, Math.min(remain.length, n)); drawBg(this.y, pad + chunk.length * lh + pad); yy = this.y + pad; this.font("normal", size); this.color(PDFK.ink); for(const l of chunk){ this.d.text(l, x + pad, yy + lh * 0.78); yy += lh; } this.y = yy + pad + 3; } }
   image(url, x, y, w, h){ try{ this.d.addImage(url, "PNG", x, y, w, h, undefined, "FAST"); }catch(e){ console.warn("pdf image", e); } }
-  finish(filename){ const n = this.d.getNumberOfPages(); const stamp = new Date().toLocaleDateString("es-ES") + " " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
+  // pie y paginación; se hace una sola vez, justo antes de sacar el fichero
+  stamp(){ const n = this.d.getNumberOfPages(); const stamp = new Date().toLocaleDateString("es-ES") + " " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
     for(let i = 1; i <= n; i++){ this.d.setPage(i); this.stroke(PDFK.line); this.d.setLineWidth(0.3); this.d.line(this.x, PDFK.H - 14, this.x + this.w, PDFK.H - 14);
       this.font("normal", 7); this.color(PDFK.faint); this.d.text(pdfTxt("Abac Capital  ·  RRHH  ·  Confidencial  ·  Uso interno  ·  Generado por Abac RRHH el " + stamp), this.x, PDFK.H - 9.5);
       this.d.text(`Página ${i} de ${n}`, PDFK.W - PDFK.M, PDFK.H - 9.5, { align:"right" }); }
-    const blob = this.d.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); return n; }
+    return n; }
+  blob(){ this.stamp(); return this.d.output("blob"); }
+  finish(filename){ const n = this.stamp(); const blob = this.d.output("blob"); const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = filename.replace(/[\\/:*?"<>|]/g, "-"); a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); return n; }
 }
 // Gráfico Chart.js fuera de pantalla → imagen PNG nítida (3x)
 function chartImage(config, wPx, hPx){
@@ -1122,7 +1137,7 @@ function chartImage(config, wPx, hPx){
   const opts = Object.assign({}, config.options || {}, { responsive:false, animation:false, devicePixelRatio:3 });
   const ch = new Chart(cv, Object.assign({}, config, { options: opts })); const url = cv.toDataURL("image/png"); ch.destroy(); holder.remove(); return url;
 }
-const radarPdfConfig = (labels, W, A, S) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds("Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:3 });
+const radarPdfConfig = (labels, W, A, S, aLabel) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds(aLabel || "Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:3 });
   return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:2 }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:11, weight:"600" }, color:"#2b3240" } } },
     plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, usePointStyle:true, font:{ size:10 } } }, tooltip:{ enabled:false } } } }; };
 const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"anterior", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
@@ -1132,16 +1147,13 @@ const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) da
     scales:{ x:{ grid:{ display:false }, ticks:{ font: t => ({ size:11, weight: t.index === selfIdx ? "700" : "400" }), color: t => t.index === selfIdx ? "#d64545" : "#5c6675", padding:3 } }, y:{ beginAtZero:true, grace:"25%", ticks:{ precision:0, font:{ size:9 }, color:"#8a94a6" }, grid:{ color:"#eef0f3" } } } } }; };
 
 // PDF de Mis resultados / ficha: documento de resultados de la evaluación
-async function downloadResultsPDF(){
-  const view = window.RES_VIEW; if(!view || !view.cur) return;
-  toast("Generando el PDF…");
-  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
-  try{
+// PDF de resultados de una persona a partir de su vista; lo usan Mis resultados, la ficha del lead y el ZIP del ciclo
+async function buildResultsPdf(view){
     const { cur, prev, dec } = view; const c = cur.c; const fr = cur.fr; const p = person(view.personId) || ME; const tu = p.id === ME.id;
     const lead = fr && fr.lead_id ? person(fr.lead_id) : null; const is360 = c.kind === '360';
     const pdf = new PdfDoc(is360 ? "Performance Evaluation" : "Mid Term Feedback", c.name, fullName(p));
     pdf.title(fullName(p), [p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  "));
-    pdf.meta([["Lead reviewer", lead ? fullName(lead) : "—"], ["Resumen enviado", fr && fr.sent_at ? fmtD(fr.sent_at) : "Pendiente"], ["Comparado con", prev ? prev.c.name : (dec ? dec.c.name : "—")]]);
+    pdf.meta([["Lead reviewer", lead ? fullName(lead) : "—"], ["Resumen actualizado", fr && fr.updated_at ? fmtD(fr.updated_at) : "Pendiente"], ["Comparado con", prev ? prev.c.name : (dec ? dec.c.name : "—")]]);
     pdf.para(is360
       ? `Resultados de la evaluación de desempeño de ${fullName(p)} en el proceso ${c.name}: objetivos fijados en la evaluación anterior, balance de su cumplimiento, puntuaciones por competencia y resumen final del lead reviewer. Las puntuaciones agregan las opiniones de compañeros y lead reviewer; ninguna aparece identificada.`
       : `Resumen del Mid Term Feedback de ${fullName(p)} en el proceso ${c.name}, escrito por su lead reviewer a partir de su autoevaluación y del feedback de los compañeros que eligió, junto con los objetivos fijados en la última evaluación de diciembre.`, 8.5, PDFK.grey);
@@ -1159,19 +1171,20 @@ async function downloadResultsPDF(){
       const yearCur = c.opens_at ? new Date(c.opens_at).getFullYear() : "";
       if(codes.length){
         const lab = k => st[k].text.replace(/ and accountability| Technical/g, "");
-        const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = codes.map(k => +(st[k].sum / st[k].n).toFixed(2)), S = codes.map(k => st[k].self);
+        const band = cur.band, aSerie = bandSeries(band, st, codes);
+        const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = aSerie.data, S = codes.map(k => st[k].self);
         // dos arañas lado a lado; el lienzo tiene la misma proporción que el hueco en el papel (si no, salen achatadas)
         const gap = 6, rw = (pdf.w - gap) / 2, rcap = 8.5, rch = 50, rh = rcap + rch, px = mm => Math.round(mm * 6.6);
-        const noteTxt = `Cada competencia se puntúa de 1 (Very Poor) a 5 (Outstanding). La media ponderada da más peso a las opiniones del mismo equipo y a las de socios y lead reviewer; la media aritmética trata todas las opiniones por igual. La autoevaluación se muestra aparte y no entra en las medias. ${st._n} opiniones este año${hasPrev ? `, ${ps._n} el anterior` : ""}.`;
+        const noteTxt = `Cada competencia se puntúa de 1 (Very Poor) a 5 (Outstanding). La media ponderada da más peso a las opiniones del mismo equipo y a las de socios y lead reviewer; ${band ? `la media de peers es la media ponderada de las notas que recibieron las demás personas del rango ${band.label} (${band.n} personas)` : "la media aritmética trata todas las opiniones por igual"}. La autoevaluación se muestra aparte y no entra en las medias. ${st._n} opiniones este año${hasPrev ? `, ${ps._n} el anterior` : ""}.`;
         pdf.font("italic", 7.5); const noteH = pdf.d.splitTextToSize(pdfTxt(noteTxt), pdf.w).length * pdf.lineH(7.5) + 2;
         // título, nota y arañas van siempre juntos en la misma página
         pdf.section(n, `Performance ${yearCur} Summary Scoring`, 12 + noteH + rh + 3); n++;
         pdf.note(noteTxt);
         const cap = (t, sub, x) => { pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text(pdfTxt(t), x, pdf.y + 3.2); pdf.font("normal", 7); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(sub), x, pdf.y + 6.8); };
-        cap(c.period_label || c.name, "Media ponderada, media aritmética y autoevaluación", pdf.x);
-        pdf.image(chartImage(radarPdfConfig(codes.map(lab), W, A, S), px(rw), px(rch)), pdf.x, pdf.y + rcap, rw, rch);
-        if(hasPrev){ const pc = codes.filter(k => ps[k]); cap(prev.c.period_label || prev.c.name, "Las mismas tres líneas del año anterior", pdf.x + rw + gap);
-          pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum / ps[k].n).toFixed(2)), pc.map(k => ps[k].self)), px(rw), px(rch)), pdf.x + rw + gap, pdf.y + rcap, rw, rch); }
+        cap(c.period_label || c.name, `Media ponderada, ${band ? "media de peers" : "media aritmética"} y autoevaluación`, pdf.x);
+        pdf.image(chartImage(radarPdfConfig(codes.map(lab), W, A, S, aSerie.label), px(rw), px(rch)), pdf.x, pdf.y + rcap, rw, rch);
+        if(hasPrev){ const pc = codes.filter(k => ps[k]); const pa = bandSeries(prev.band, ps, pc); cap(prev.c.period_label || prev.c.name, "Las mismas tres líneas del año anterior", pdf.x + rw + gap);
+          pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pa.data, pc.map(k => ps[k].self), pa.label), px(rw), px(rch)), pdf.x + rw + gap, pdf.y + rcap, rw, rch); }
         else { cap("Año anterior", "Sin una evaluación anterior del mismo tipo con la que comparar", pdf.x + rw + gap); }
         pdf.y += rh + 12;
         // distribución de notas: bloque aparte dentro del apartado, separado de las arañas por una línea con aire a ambos lados;
@@ -1198,16 +1211,22 @@ async function downloadResultsPDF(){
       if(fr && fr.quotes) pdf.box("Key Quotes from Reviewers", fr.quotes);
       pdf.box(`Objectives ${yr}`, fr && fr.objectives);
     }
-    const pages = pdf.finish(`Abac - ${is360 ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${c.period_label || c.name}.pdf`);
+    return { pdf, filename: `Abac - ${is360 ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${c.period_label || c.name}.pdf` };
+}
+async function downloadResultsPDF(){
+  const view = window.RES_VIEW; if(!view || !view.cur) return;
+  toast("Generando el PDF…");
+  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  try{
+    const { pdf, filename } = await buildResultsPdf(view);
+    const pages = pdf.finish(filename);
     toast(`PDF descargado (${pages} página${pages > 1 ? "s" : ""})`);
   }catch(e){ err(e, "PDF"); }
 }
 // PDF de una respuesta enviada (autoevaluación): copia oficial de las respuestas
-async function downloadFormPDF(){
-  if(!CUR) return; const { a, form, answers, cycle } = CUR;
-  toast("Generando el PDF…");
-  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
-  try{
+// PDF de una respuesta enviada a partir de su contexto { a, form, answers, cycle }
+async function buildFormPdf(ctx){
+    const { a, form, answers, cycle } = ctx;
     const p = a.reviewee; const isSelf = a.role === 'self';
     const pdf = new PdfDoc(cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback", cycle.name, fullName(p));
     pdf.title(isSelf ? "Autoevaluación" : ROLE_LABEL[a.role], `${fullName(p)}  ·  ${[p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  ")}`);
@@ -1236,15 +1255,23 @@ async function downloadFormPDF(){
       }
       pdf.y += 1;
     }
-    const pages = pdf.finish(`Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf`);
+    return { pdf, filename: `Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf` };
+}
+async function downloadFormPDF(){
+  if(!CUR) return;
+  toast("Generando el PDF…");
+  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  try{
+    const { pdf, filename } = await buildFormPdf(CUR);
+    const pages = pdf.finish(filename);
     toast(`PDF descargado (${pages} página${pages > 1 ? "s" : ""})`);
   }catch(e){ err(e, "PDF"); }
 }
 function view_title(){ const v = window.RES_VIEW; return v && v.cur ? v.cur.c.name : "Mis resultados"; }
 // Araña con tres líneas y pop-up de las tres notas al pasar por un eje
-function radar3(canvasId, labels, W, A, S){
+function radar3(canvasId, labels, W, A, S, aLabel){
   const ctx = document.getElementById(canvasId); if(!ctx || !window.Chart) return;
-  const ds = [ rds("Media ponderada", W, "#0e9aab"), rds("Media aritmética", A, "#0e2150") ];
+  const ds = [ rds("Media ponderada", W, "#0e9aab"), rds(aLabel || "Media aritmética", A, "#0e2150") ];
   if(S && S.some(v => v != null)) ds.push({ ...rds("Tu autoevaluación", S, "#e8862e", true), label:"Autoevaluación", pointStyle:"rectRot", pointRadius:4 });
   const showIdx = (ch, idx, evt) => { const act = ch.data.datasets.map((d, i) => d.data[idx] != null ? { datasetIndex:i, index:idx } : null).filter(Boolean); ch.setActiveElements(act); ch.tooltip.setActiveElements(act, { x:evt.x, y:evt.y }); ch.update("none"); };
   const clear = ch => { ch.setActiveElements([]); ch.tooltip.setActiveElements([], {x:0,y:0}); ch.update("none"); };
@@ -1316,13 +1343,19 @@ function scaleStats(rows){
   if(Object.keys(out).length) out._n = keys.size || Math.max(...Object.values(out).filter(o=>o.n!=null).map(o=>o.n));
   return out;
 }
+// Segunda línea de la araña: la media de peers del rango si la persona es del Deal Team, y si no la media aritmética
+const bandSeries = (band, stats, codes) => band
+  ? { data: codes.map(k => band.byCode[k] == null ? null : band.byCode[k]), label: `Media de peers · ${band.label}` }
+  : { data: codes.map(k => +(stats[k].sum / stats[k].n).toFixed(2)), label: "Media aritmética" };
 function drawResults(view){
   if(!view || !view.cur || view.cur.c.kind !== '360') return;   // en junio no hay gráficos
   const st = scaleStats(view.cur.rows); const codes = Object.keys(st).filter(k=>k!=="_n"); if(!codes.length) return;
   const lab = k => st[k].text.replace(/ and accountability| Technical/g,"");
-  radar3("rad_cur", codes.map(lab), codes.map(k => +(st[k].wsum/st[k].w).toFixed(2)), codes.map(k => +(st[k].sum/st[k].n).toFixed(2)), codes.map(k => st[k].self));
+  const a = bandSeries(view.cur.band, st, codes);
+  radar3("rad_cur", codes.map(lab), codes.map(k => +(st[k].wsum/st[k].w).toFixed(2)), a.data, codes.map(k => st[k].self), a.label);
   const ps = view.prev ? scaleStats(view.prev.rows) : null;
-  if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); radar3("rad_prev", pc.map(lab), pc.map(k => +(ps[k].wsum/ps[k].w).toFixed(2)), pc.map(k => +(ps[k].sum/ps[k].n).toFixed(2)), pc.map(k => ps[k].self)); }
+  if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); const pa = bandSeries(view.prev.band, ps, pc);
+    radar3("rad_prev", pc.map(lab), pc.map(k => +(ps[k].wsum/ps[k].w).toFixed(2)), pa.data, pc.map(k => ps[k].self), pa.label); }
   codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, view.cur.c.period_label || "Este año", view.prev ? (view.prev.c.period_label || "Año anterior") : "", st[k].self));
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
@@ -1343,10 +1376,10 @@ PAGES.team = async function(){
       <table><tr><th>Persona</th><th>Autoevaluación</th><th>Compañeros</th><th>Mi valoración</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
       ${byCycle[cid].map(a => { const p = (prog||[]).filter(x => x.reviewee_id === a.reviewee_id); const g = r => p.find(x=>x.role===r) || {total:0,submitted:0}; const fr = (frs||[]).find(f => f.cycle_id===cid && f.reviewee_id===a.reviewee_id); const ready = g('self').submitted && g('peer').submitted>=g('peer').total && a.status==='submitted';
         return `<tr><td class="row">${av(a.reviewee,"sm")} ${esc(fullName(a.reviewee))}</td><td>${g('self').submitted?'<span class="y">enviada</span>':'<span class="mut">pendiente</span>'}</td><td>${g('peer').submitted} / ${g('peer').total}</td><td>${a.status==='submitted'?'<span class="y">enviada</span>':a.status==='draft'?'<span class="p">borrador</span>':'<span class="mut">pendiente</span>'}</td>
-        <td>${fr ? (fr.status==='sent' ? `<span class="pill ok">enviado</span>` : `<span class="pill warn">borrador</span>`) : (ready ? `<span class="pill">listo para escribir</span>` : `<span class="mut xs">esperando respuestas</span>`)}</td>
-        <td>${(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id) ? `<span class="pill ok">mostrados</span>` : (fr && fr.status==='sent' ? `<span class="pill warn">sin mostrar</span>` : `<span class="mut xs">—</span>`)}</td>
-        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${ready&&!(fr&&fr.status==='sent')?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">${fr&&fr.status==='sent'?'Abrir':'Ver todo y resumen'}</button></td></tr>`; }).join("")}</table>
-      <div class="hint" style="margin-top:10px">Tu propia valoración de cada persona se responde en «Mis reviews», como una más. Aquí escribes el resumen final cuando estén todas las respuestas y, cuando quieras, pulsas «Mostrar resultados» para que la persona lo vea.</div></div>`;
+        <td>${fr ? `<span class="pill ok">guardado</span>` : (ready ? `<span class="pill">listo para escribir</span>` : `<span class="mut xs">esperando respuestas</span>`)}</td>
+        <td>${(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id) ? `<span class="pill ok">mostrados</span>` : (fr ? `<span class="pill warn">sin mostrar</span>` : `<span class="mut xs">—</span>`)}</td>
+        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${ready&&!(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id)?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">Ver todo y resumen</button></td></tr>`; }).join("")}</table>
+      <div class="hint" style="margin-top:10px">Tu propia valoración de cada persona se responde en «Mis reviews», como una más. Aquí escribes el resumen final y lo guardas las veces que haga falta, también con el ciclo cerrado; cuando lo decidáis, pulsas «Mostrar resultados» para que la persona lo vea.</div></div>`;
   }
   return html;
 };
@@ -1374,19 +1407,19 @@ PAGES.review = async function(arg){
   }
   const view = await buildResultsView(p.id, c.id, async cid => { const { data, error:e } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); if(e){ console.warn(e.message); return []; } return data || []; });
   window.RES_VIEW = view; window.REV_FR = fr;
-  const status = shown ? `<span class="pill ok">resultados mostrados a ${esc(p.first_name)} el ${fmtD(rel[0].released_at)}</span>` : (fr && fr.status==='sent' ? `<span class="pill warn">resumen enviado · resultados sin mostrar</span>` : `<span class="pill gray">sin mostrar</span>`);
-  const showBtn = iAmLead && !shown && fr && fr.status==='sent' ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Mostrar resultados a ${esc(p.first_name)}</button>` : "";
-  const canEdit = iAmLead && !(fr && fr.status === 'sent');
+  const status = shown ? `<span class="pill ok">resultados mostrados a ${esc(p.first_name)} el ${fmtD(rel[0].released_at)}</span>` : (fr ? `<span class="pill warn">resumen guardado · resultados sin mostrar</span>` : `<span class="pill gray">sin mostrar</span>`);
+  const showBtn = iAmLead && !shown ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Mostrar resultados a ${esc(p.first_name)}</button>` : "";
+  // El lead edita su resumen SIEMPRE, con el ciclo abierto, cerrado o publicado (Hugo, 15-sep-2026: la reunión donde se discuten los resultados es semanas después)
+  const canEdit = iAmLead;
   const pending = []; if(!selfDone) pending.push("la autoevaluación"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} compañero${peersAll.length-peersDone.length>1?'s':''}`);
-  const frStatus = fr ? (fr.status === 'sent' ? `<span class="pill ok">enviado el ${fmtD(fr.sent_at)}</span>` : `<span class="pill warn">borrador</span>`) : `<span class="pill gray">sin empezar</span>`;
+  const frStatus = fr ? `<span class="pill ok">guardado · ${fmtDT(fr.updated_at)}</span>` : `<span class="pill gray">sin empezar</span>`;
   return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button><button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>${showBtn}`) +
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
-    ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo, pero conviene enviar el resumen cuando esté todo.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Lee primero los objetivos del año anterior y las puntuaciones; el Excel tiene todas las respuestas juntas.</div>`) : ""}
+    ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo y guardando: el resumen no se cierra nunca.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Lee primero los objetivos del año anterior y las puntuaciones; el Excel tiene todas las respuestas juntas.</div>`) : ""}
     ${resultsHTML(view, 'other', { fr, canEdit })}
     ${canEdit ? `<div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Última edición ${fmtDT(fr.updated_at)}`:""}</span>
-      <button class="btn" onclick="saveFinalReview(false)"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
-      <button class="btn pri" onclick="saveFinalReview(true)"><i class="ti ti-send"></i> Enviar el resumen</button></div>
-    <div class="hint" style="margin-top:10px"><i class="ti ti-eye-off"></i> Enviar el resumen lo deja guardado en la ficha. ${esc(p.first_name)} no verá nada hasta que pulses «Mostrar resultados».</div>` : ""}
+      <button class="btn pri" onclick="saveFinalReview()"><i class="ti ti-device-floppy"></i> Guardar respuestas</button></div>
+    <div class="hint" style="margin-top:10px">${shown ? `<i class="ti ti-eye"></i> ${esc(p.first_name)} ya ve este resumen: lo que guardes se verá al momento.` : `<i class="ti ti-eye-off"></i> Guarda las veces que quieras, también con el ciclo cerrado. ${esc(p.first_name)} no verá nada hasta que pulses «Mostrar resultados».`}</div>` : ""}
     </div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${canSeeAll()?'partners':'team'}')">Volver</button></div>`;
 };
@@ -1418,8 +1451,9 @@ const codesOf = a => new Set(formQuestionsFor(a.form_id, a.role).map(q => q.code
 // Nombres de hoja válidos (31 caracteres, sin []:*?/\) y sin repetir
 function sheetNamer(){ const used = new Set(); return raw => { let n = String(raw).replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(used.has(k)) k = n.slice(0, 28) + " " + (i++); used.add(k); return k; }; }
 // Excel de todas las reviews que YO he enviado (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden
-async function buildMyReviewsWorkbook(){
-  const all = (await myAssignments()).filter(a => a.status === 'submitted');
+async function buildReviewsWorkbook(who, cycleId, forArchive){
+  who = who || ME; const soyYo = who.id === ME.id && !forArchive;   // en el ZIP nunca es «mis reviews»; «mine» ya está cogido dentro del bucle de filas
+  const all = (await assignmentsOf(who.id)).filter(a => a.status === 'submitted' && (!cycleId || a.cycle_id === cycleId));
   if(!all.length) return null;
   const { data:ans } = await sb.from("answers").select("*").in("assignment_id", all.map(a => a.id));
   const qById = {}; for(const f of FORMS) for(const sec of f.form_sections) for(const qq of sec.questions) qById[qq.id] = qq;
@@ -1432,14 +1466,14 @@ async function buildMyReviewsWorkbook(){
     const list = all.filter(a => a.cycle_id === c.id).sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewee).localeCompare(fullName(y.reviewee)));
     const allQ = unionQuestions(list);   // solo las preguntas de los cuestionarios que he respondido en este ciclo
     const ws = wb.addWorksheet(sheetName(c.period_label || c.name), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
-    title(ws, 1, c.name, 16); sub(ws, 2, `Mis reviews enviadas · ${fullName(ME)} · exportado el ${fmtD(new Date())} · «—» = esa pregunta no está en el cuestionario de esa review`);
+    title(ws, 1, c.name, 16); sub(ws, 2, `${soyYo ? "Mis reviews enviadas" : "Reviews enviadas"} · ${fullName(who)} · exportado el ${fmtD(new Date())} · «—» = esa pregunta no está en el cuestionario de esa review`);
     const FIRST = 5, TXT_W = 46, SC_W = 13;
     const head = ["Persona evaluada", "Equipo", "Tipo de review", "Enviada"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
     headRow(ws, 4, head, 4); ws.getRow(4).height = 48; let r = 5;
     for(const a of list){
       const by = {}; for(const an of (ans||[]).filter(x => x.assignment_id === a.id)){ const qq = qById[an.question_id]; if(qq) by[qq.code] = an.value_num != null ? an.value_num : (an.value_text || ""); }
       const row = ws.getRow(r);
-      row.getCell(1).value = a.role === 'self' ? `${fullName(a.reviewee)} (yo)` : fullName(a.reviewee); row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
+      row.getCell(1).value = a.role === 'self' ? `${fullName(a.reviewee)}${soyYo ? " (yo)" : ""}` : fullName(a.reviewee); row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
       row.getCell(2).value = TEAM_LABEL[a.reviewee.team] || ""; row.getCell(2).alignment = { vertical:"top" };
       row.getCell(3).value = ROLE_LABEL[a.role]; row.getCell(3).font = { size:9, color:{ argb:GREY } }; row.getCell(3).alignment = { vertical:"top" };
       row.getCell(4).value = a.submitted_at ? fmtD(a.submitted_at) : ""; row.getCell(4).alignment = { vertical:"top", horizontal:"center" };
@@ -1454,11 +1488,11 @@ async function buildMyReviewsWorkbook(){
     ws.getColumn(1).width = 28; ws.getColumn(2).width = 13; ws.getColumn(3).width = 15; ws.getColumn(4).width = 11;
     allQ.forEach((qq, j) => ws.getColumn(FIRST + j).width = qq.kind === 'scale' ? SC_W : TXT_W);
   }
-  return { wb, filename: `Mis reviews - ${fullName(ME)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"), n: all.length };
+  return { wb, filename: `${soyYo ? "Mis reviews" : "Reviews enviadas"} - ${fullName(who)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"), n: all.length };
 }
 async function exportMyReviewsExcel(){
   toast("Preparando el Excel…");
-  let built; try{ built = await buildMyReviewsWorkbook(); }catch(e){ return err(e, "Excel"); }
+  let built; try{ built = await buildReviewsWorkbook(); }catch(e){ return err(e, "Excel"); }
   if(!built) return toast("Todavía no has enviado ninguna review");
   const buf = await built.wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = built.filename; el.click(); URL.revokeObjectURL(u);
@@ -1562,27 +1596,79 @@ async function exportCycleExcel(cycleId, revieweeId, opts){
   const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = built.filename; el.click(); URL.revokeObjectURL(u);
   toast(`Excel: ${built.people} persona${built.people>1?'s':''}, ${built.answers} respuestas`);
 }
+/* ---------- ZIP con todo lo de un ciclo: una carpeta por persona (Hugo, 15-sep-2026) ----------
+   Para quien ve todas las reviews: descarga de una vez la autoevaluación de cada persona en PDF, el Excel con las reviews
+   que ella ha enviado a los demás y el PDF de sus resultados, para archivarlo en la carpeta confidencial de Abac. */
+function loadJSZip(){ return loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", () => !!window.JSZip); }
+const zipSafe = s => String(s).replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+let ZIP_CANCEL = false;
+async function exportCycleZip(cycleId){
+  if(!canSeeAll()) return toast("Solo quien ve todas las reviews", true);
+  const c = byId(CYCLES, cycleId); ZIP_CANCEL = false;
+  openModal(`<h2>Descargar todas las respuestas</h2>
+    <p class="sm">De <b>${esc(c.name)}</b>, una carpeta por persona con su autoevaluación en PDF, el Excel de las reviews que ha enviado y el PDF de sus resultados.</p>
+    <p class="sm mut">Tarda un poco: se generan todos los PDF y los Excel en el navegador. No cierres la pestaña.</p>
+    <div class="row" style="align-items:center;gap:10px;margin-top:10px"><div class="spin"></div><span class="sm b" id="zipState">Preparando…</span></div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="ZIP_CANCEL=true;closeModal()">Cancelar</button></div>`);
+  const state = t => { const el = document.getElementById("zipState"); if(el) el.textContent = t; };
+  const pause = () => new Promise(r => setTimeout(r, 0));
+  try{
+    await loadJSZip(); await pdfLoad(); await loadExcelJS();
+    const { data:as, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", cycleId); if(error) throw error;
+    if(!as || !as.length){ closeModal(); return toast("Este ciclo no tiene asignaciones"); }
+    const people = [...new Map(as.map(a => [a.reviewee_id, a.reviewee])).values()].sort((x, y) => (TEAM_LABEL[x.team]||"").localeCompare(TEAM_LABEL[y.team]||"") || (x.last_name||"").localeCompare(y.last_name||""));
+    const selfs = as.filter(a => a.role === 'self' && a.status === 'submitted');
+    const { data:ans } = selfs.length ? await sb.from("answers").select("*").in("assignment_id", selfs.map(a => a.id)) : { data:[] };
+    const zip = new JSZip(); const root = zip.folder(zipSafe(c.name));
+    let files = 0;
+    for(let i = 0; i < people.length; i++){
+      if(ZIP_CANCEL) return toast("Descarga cancelada");
+      const p = people[i]; state(`${i + 1} de ${people.length} · ${fullName(p)}`); await pause();
+      const items = [];
+      // 1. su autoevaluación enviada
+      const sa = selfs.find(a => a.reviewee_id === p.id); const form = sa ? byId(FORMS, sa.form_id) : null;
+      if(sa && form){
+        const byQ = {}; for(const an of (ans||[]).filter(x => x.assignment_id === sa.id)) byQ[an.question_id] = an;
+        const { pdf, filename } = await buildFormPdf({ a: sa, form, answers: byQ, cycle: c });
+        items.push([filename, pdf.blob()]);
+      }
+      // 2. el Excel de las reviews que ella ha enviado en este ciclo
+      const wbk = await buildReviewsWorkbook(p, cycleId, true);
+      if(wbk) items.push([wbk.filename, await wbk.wb.xlsx.writeBuffer()]);
+      // 3. el PDF de sus resultados
+      const view = await buildResultsView(p.id, cycleId, async cid => { const { data } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); return data || []; });
+      if(view && view.cur && (((view.cur.rows || []).length) || view.cur.fr)){
+        const { pdf, filename } = await buildResultsPdf(view); items.push([filename, pdf.blob()]);
+      }
+      if(!items.length) continue;   // sin nada enviado: no se crea la carpeta
+      const folder = root.folder(zipSafe(fullName(p)));
+      for(const [name, data] of items){ folder.file(zipSafe(name), data); files++; }
+    }
+    if(!files){ closeModal(); return toast("No hay nada enviado que descargar"); }
+    state("Comprimiendo…"); await pause();
+    const blob = await zip.generateAsync({ type:"blob", compression:"STORE" });   // los PDF y los xlsx ya van comprimidos
+    const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = zipSafe(`Abac RRHH - ${c.name} - respuestas.zip`); el.click(); setTimeout(() => URL.revokeObjectURL(u), 8000);
+    closeModal(); toast(`ZIP descargado: ${people.length} personas, ${files} ficheros`);
+  }catch(e){ closeModal(); err(e, "No se pudo preparar el ZIP"); }
+}
+
 /* ---------- Resumen final del lead reviewer ---------- */
-async function saveFinalReview(send){
+// Un único botón: guarda y se puede volver a editar siempre (Hugo, 15-sep-2026). «Mostrar resultados» es lo que decide cuándo lo ve la persona.
+async function saveFinalReview(){
   const { c, p } = window.REV_CTX; const g = x => document.getElementById(x); const is360 = c.kind === '360';
   const row = { cycle_id:c.id, reviewee_id:p.id, lead_id:ME.id, recap: is360 && g("fr_recap") ? (g("fr_recap").value.trim()||null) : null, summary:g("fr_summary").value.trim()||null, positives:g("fr_positives").value.trim()||null, development:g("fr_development").value.trim()||null, quotes: (window.REV_FR && window.REV_FR.quotes) || null,
     objectives: is360 && g("fr_objectives") ? (g("fr_objectives").value.trim()||null) : null, objectives_year: is360 && g("fr_year") ? (parseInt(g("fr_year").value)||null) : null, updated_at:new Date().toISOString() };
-  if(send && !row.summary) return toast("Escribe al menos el Reviewer Summary antes de enviar", true);
   const { error } = await sb.from("final_reviews").upsert(row, { onConflict:"cycle_id,reviewee_id" });
   if(error) return err(error, "No se pudo guardar el resumen");
-  if(!send){ toast("Borrador guardado"); const st=g("frState"); if(st) st.textContent = "Guardado " + new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}); return; }
-  openModal(`<h2>¿Enviar el resumen final?</h2><p class="sm">Queda guardado en la ficha de ${esc(fullName(p))} y ya no se podrá editar. ${esc(p.first_name)} <b>todavía no verá nada</b>: lo verá cuando pulses «Mostrar resultados».</p>
-    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="doSendFinal()"><i class="ti ti-send"></i> Enviar</button></div>`);
-}
-async function doSendFinal(){
-  closeModal(); const { c, p } = window.REV_CTX;
-  const { error } = await sb.rpc("send_final_review", { p_cycle:c.id, p_reviewee:p.id });
-  if(error) return err(error, "No se pudo enviar"); toast("Resumen final enviado"); render();
+  window.REV_FR = Object.assign({}, window.REV_FR || {}, row);   // así «Mostrar resultados» ya sabe que hay resumen, sin recargar
+  toast("Resumen guardado");
+  const st = g("frState"); if(st) st.textContent = "Guardado " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
 }
 // El lead decide cuándo la persona ve sus resultados (Hugo, 07-sep-2026)
 function showResults(){
   const { c, p } = window.REV_CTX;
-  openModal(`<h2>¿Mostrar los resultados a ${esc(p.first_name)}?</h2><p class="sm">${esc(fullName(p))} verá en «Mis resultados» tu resumen final y sus gráficos, y recibirá el aviso de que ya puede verlos. No se puede deshacer.</p>
+  if(!window.REV_FR || !((window.REV_FR.summary || "").trim())) return toast("Primero escribe y guarda el Reviewer Summary", true);
+  openModal(`<h2>¿Mostrar los resultados a ${esc(p.first_name)}?</h2><p class="sm">${esc(fullName(p))} verá en «Mis resultados» tu resumen final y sus gráficos, y recibirá el aviso de que ya puede verlos. No se puede deshacer; el resumen sí lo podrás seguir editando.</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn pri" onclick="closeModal();(async()=>{ const { error } = await sb.rpc('show_results', { p_cycle:'${c.id}', p_reviewee:'${p.id}' }); if(error) err(error,'No se pudo mostrar'); else { toast('Resultados mostrados a ${esc(p.first_name)}'); render(); } })()"><i class="ti ti-eye"></i> Mostrar resultados</button></div>`);
 }
 
@@ -1594,14 +1680,15 @@ PAGES.partners = async function(){
   PART_CYCLE = PART_CYCLE || CYCLES[0].id; const c = byId(CYCLES, PART_CYCLE);
   const { data:prog, error } = await sb.rpc("cycle_progress", { p_cycle: c.id }); if(error) throw error;
   const { data:rels } = await sb.from("releases").select("*").eq("cycle_id", c.id);
-  const { data:frs } = await sb.from("final_reviews").select("cycle_id,reviewee_id,status").eq("cycle_id", c.id);
+  const { data:frs } = await sb.from("final_reviews").select("cycle_id,reviewee_id,updated_at").eq("cycle_id", c.id);
   const people = {}; for(const r of prog){ (people[r.reviewee_id] ||= {name:r.reviewee, team:r.team, self:null, lead:null, peer:null})[r.role] = r; }
   const dot = r => !r ? '<span class="mut">—</span>' : r.submitted>=r.total ? `<span class="y">${r.submitted}/${r.total}</span>` : `<span class="p">${r.submitted}/${r.total}</span>`;
   return `<div class="row" style="margin-bottom:14px"><select class="inp" style="width:auto" onchange="PART_CYCLE=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)} · ${CYCLE_STATUS[x.status]}</option>`).join("")}</select>
      <span class="sm mut">${Object.keys(people).length} personas evaluadas · ${(rels||[]).length} con resultados mostrados</span>
-     <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button></div>
+     <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>
+     <button class="btn" onclick="exportCycleZip('${c.id}')" title="Un ZIP con una carpeta por persona: su autoevaluación en PDF, el Excel de las reviews que ha enviado y el PDF de sus resultados"><i class="ti ti-file-zip"></i> Descargar respuestas (ZIP)</button></div>
    <div class="card"><table><tr><th>Persona</th><th>Equipo</th><th>Auto</th><th>Compañeros</th><th>Lead</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
-   ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); const fr = (frs||[]).find(f=>f.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${fr ? (fr.status==='sent' ? '<span class="y">enviado</span>' : '<span class="p">borrador</span>') : '<span class="mut">no</span>'}</td><td class="xs">${rel?`<span class="y">mostrados ${fmtD(rel.released_at)}</span>`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Abrir</button></td></tr>`; }).join("")}</table>
+   ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); const fr = (frs||[]).find(f=>f.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${fr ? `<span class="y">guardado</span>` : '<span class="mut">no</span>'}</td><td class="xs">${rel?`<span class="y">mostrados ${fmtD(rel.released_at)}</span>`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Abrir</button></td></tr>`; }).join("")}</table>
    ${!Object.keys(people).length?`<div class="emptystate">Este ciclo no tiene asignaciones.</div>`:""}</div>`;
 };
 
@@ -1739,7 +1826,7 @@ function personInfo(id){
 PAGES.audit = async function(){
   const { data, error } = await sb.from("audit_log").select("*").order("at", {ascending:false}).limit(300);
   if(error) throw error;
-  const ACTION = { mail_test:"Se envió un correo de prueba", mail_settings:"Cambió los ajustes de correo", submit:"Envió una evaluación", resubmit:"Volvió a enviar una evaluación corregida", read_results:"Leyó sus resultados", read_results_of:"Leyó los resultados de otra persona", send_final_review:"Envió el resumen final", show_results:"Mostró los resultados a la persona", reopen_assignment:"Reabrió una respuesta enviada", choose_reviewers:"Eligió a sus compañeros", release:"Publicó", import:"Importó" };
+  const ACTION = { mail_test:"Se envió un correo de prueba", mail_settings:"Cambió los ajustes de correo", submit:"Envió una evaluación", resubmit:"Volvió a enviar una evaluación corregida", read_results:"Leyó sus resultados", read_results_of:"Leyó los resultados de otra persona", save_final_review:"Guardó el resumen final", send_final_review:"Envió el resumen final", show_results:"Mostró los resultados a la persona", reopen_assignment:"Reabrió una respuesta enviada", choose_reviewers:"Eligió a sus compañeros", release:"Publicó", import:"Importó" };
   return `<div class="card"><h3><i class="ti ti-shield-lock"></i> Registro <span class="r">${data.length} entradas (últimas 300)</span></h3>
     <table><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Sobre quién</th><th>Ciclo</th></tr>
     ${data.map(a => `<tr><td class="xs mut">${fmtDT(a.at)}</td><td class="sm">${esc(a.actor_email||"")}</td><td class="sm">${ACTION[a.action]||esc(a.action)} ${a.details&&a.details.role?`<span class="tag">${ROLE_LABEL[a.details.role]||a.details.role}</span>`:""}</td><td class="sm">${a.person_id?esc(fullName(person(a.person_id))):"—"}</td><td class="xs mut">${a.cycle_id?esc((byId(CYCLES,a.cycle_id)||{}).name||""):""}</td></tr>`).join("")}</table>
