@@ -1257,6 +1257,24 @@ async function buildFormPdf(ctx){
     }
     return { pdf, filename: `Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf` };
 }
+// PDF de la autoevaluación de una persona desde su ficha (Hugo, 18-sep-2026): el mismo documento que se descarga ella.
+// Siempre se puede descargar, haya enviado todas las respuestas o no; el propio PDF dice en qué estado está.
+async function downloadSelfPDF(){
+  const { c, p, selfA } = window.REV_CTX || {};
+  if(!selfA) return toast("Esta persona no tiene autoevaluación en este ciclo", true);
+  const form = byId(FORMS, selfA.form_id);
+  if(!form) return toast("El ciclo no tiene cuestionario de autoevaluación", true);
+  toast("Generando el PDF…");
+  try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
+  try{
+    const { data:ans, error } = await sb.from("answers").select("*").eq("assignment_id", selfA.id);
+    if(error) throw error;
+    const answers = {}; for(const an of (ans||[])) answers[an.question_id] = an;
+    const { pdf, filename } = await buildFormPdf({ a: selfA, form, answers, cycle: c });
+    const pages = pdf.finish(filename);
+    toast(`PDF de la autoevaluación de ${p.first_name} (${pages} página${pages > 1 ? "s" : ""})`);
+  }catch(e){ err(e, "PDF"); }
+}
 async function downloadFormPDF(){
   if(!CUR) return;
   toast("Generando el PDF…");
@@ -1391,7 +1409,8 @@ PAGES.review = async function(arg){
   const { data:as, error } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", c.id).eq("reviewee_id", p.id);
   if(error) throw error;
   const { data:rel } = await sb.from("releases").select("*").eq("cycle_id", c.id).eq("reviewee_id", p.id).limit(1);
-  window.REV_CTX = { c, p, as, ans:[] };
+  const selfA = as.find(a => a.role === 'self');   // su autoevaluación: el PDF se puede descargar esté enviada, en borrador o sin empezar
+  window.REV_CTX = { c, p, as, ans:[], selfA };
   const myLead = as.find(a => a.role==='lead' && a.reviewer_id===ME.id); const iAmLead = !!myLead;
   const { data:frRows } = await sb.from("final_reviews").select("*").eq("cycle_id", c.id).eq("reviewee_id", p.id).limit(1);
   const fr = frRows && frRows[0];
@@ -1413,7 +1432,7 @@ PAGES.review = async function(arg){
   const canEdit = iAmLead;
   const pending = []; if(!selfDone) pending.push("la autoevaluación"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} compañero${peersAll.length-peersDone.length>1?'s':''}`);
   const frStatus = fr ? `<span class="pill ok">guardado · ${fmtDT(fr.updated_at)}</span>` : `<span class="pill gray">sin empezar</span>`;
-  return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button><button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>${showBtn}`) +
+  return head(`${status}<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>${selfA ? `<button class="btn sm" onclick="downloadSelfPDF()" title="El mismo PDF que se descarga ${esc(p.first_name)} de su autoevaluación"><i class="ti ti-file-type-pdf"></i> PDF de la autoevaluación</button>` : ""}<button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> PDF de resultados</button>${showBtn}`) +
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Resumen final del lead reviewer <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
     ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Aún faltan por enviar ${pending.join(" y ")}. Puedes ir escribiendo y guardando: el resumen no se cierra nunca.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> Todas las respuestas están enviadas. Lee primero los objetivos del año anterior y las puntuaciones; el Excel tiene todas las respuestas juntas.</div>`) : ""}
     ${resultsHTML(view, 'other', { fr, canEdit })}
