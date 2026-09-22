@@ -387,7 +387,7 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .radar{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
 .radar h4{margin:0 0 4px;font-size:13px;color:var(--ink);font-weight:700}
 .radar .sub{font-size:11.5px;color:var(--muted);margin-bottom:6px}
-.radar .box{position:relative;height:280px}
+.radar .box{position:relative;height:320px}
 @media(max-width:1000px){.radars{grid-template-columns:1fr}}
 @media print{.sidebar,.topbar,.footer,.btn{display:none!important}}
 
@@ -874,6 +874,7 @@ PAGES.form = async function(id){
   const foot = editable ? `<div class="card" style="position:sticky;bottom:0;display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 20px">
       <div style="flex:1;display:flex;align-items:center;gap:12px"><div class="bar" style="width:160px"><span id="fprog" style="width:0"></span></div><span class="sm mut" id="fprogTxt"></span><span class="xs mut" id="saveState">Borrador guardado automáticamente</span></div>
       <button class="btn" onclick="go('tasks')">Volver</button>
+      ${mine && a.role === 'self' ? `<button class="btn" onclick="downloadFormPDF()" title="Un PDF con lo que llevas escrito ahora mismo, aunque todavía no lo hayas enviado"><i class="ti ti-file-type-pdf"></i> Descargar PDF</button>` : ""}
       <button class="btn" onclick="saveDraftNow()"><i class="ti ti-device-floppy"></i> Guardar borrador</button>
       <button class="btn pri" onclick="submitCurrent()"><i class="ti ti-send"></i> Enviar respuesta</button></div>`
     : `<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" onclick="history.length>1?go('tasks'):go('tasks')">Volver</button></div>`;
@@ -928,12 +929,12 @@ function queueSave(qid, text){ clearTimeout(SAVE_T[qid]); setState("Guardando…
 function setScale(qid, v, el){ [...el.parentNode.children].forEach(s=>s.classList.remove("on")); el.classList.add("on"); saveAnswer(qid, {value_num:v}); }
 function setState(t){ const s=document.getElementById("saveState"); if(s) s.textContent=t; }
 // «Guardar borrador» (Hugo, 08-sep-2026): guarda ahora lo pendiente del guardado automático; sigue editable hasta «Enviar respuesta»
-async function saveDraftNow(){
+async function saveDraftNow(silent){
   if(!CUR) return; const ps = [];
   document.querySelectorAll("textarea[data-q]").forEach(t => { const qid = t.dataset.q; const prev = CUR.answers[qid] || {}; if((t.value||"") !== (prev.value_text||"")){ clearTimeout(SAVE_T[qid]); ps.push(saveAnswer(qid, { value_text: t.value })); } });
   await Promise.all(ps);
   setState("Borrador guardado " + new Date().toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" }));
-  toast("Borrador guardado. Puedes seguir editándolo cuando quieras");
+  if(!silent) toast("Borrador guardado. Puedes seguir editándolo cuando quieras");
 }
 function updateProgress(){ if(!CUR) return; const groups = questionsFor(CUR.form, CUR.a.role); let total=0, done=0; for(const g of groups) for(const q of g.questions){ total++; const a = CUR.answers[q.id]; if(a && (a.value_num!=null || (a.value_text||"").trim())) done++; } const b=document.getElementById("fprog"), t=document.getElementById("fprogTxt"); if(b) b.style.width = (total? done/total*100 : 0) + "%"; if(t) t.textContent = `${done} de ${total} respondidas`; }
 async function saveAnswer(qid, patch){
@@ -1138,8 +1139,8 @@ function chartImage(config, wPx, hPx){
   const ch = new Chart(cv, Object.assign({}, config, { options: opts })); const url = cv.toDataURL("image/png"); ch.destroy(); holder.remove(); return url;
 }
 const radarPdfConfig = (labels, W, A, S, aLabel) => { const ds = [ rds("Media ponderada", W, "#0e9aab"), rds(aLabel || "Media aritmética", A, "#0e2150") ]; if(S && S.some(v => v != null)) ds.push({ ...rds("Autoevaluación", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:3 });
-  return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:2 }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:11, weight:"600" }, color:"#2b3240" } } },
-    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, usePointStyle:true, font:{ size:10 } } }, tooltip:{ enabled:false } } } }; };
+  return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:{ top:8, bottom:2, left:10, right:10 } }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ padding:6, font:{ size:11, weight:"600" }, color:"#2b3240" } } },
+    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, boxHeight:8, usePointStyle:true, padding:14, font:{ size:10 } } }, tooltip:{ enabled:false } } } }; };
 const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"anterior", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
   datasets.push({ label:"actual", data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
   const selfIdx = selfScore ? Math.round(selfScore) - 1 : -1;
@@ -1227,13 +1228,13 @@ async function downloadResultsPDF(){
 // PDF de una respuesta enviada a partir de su contexto { a, form, answers, cycle }
 async function buildFormPdf(ctx){
     const { a, form, answers, cycle } = ctx;
-    const p = a.reviewee; const isSelf = a.role === 'self';
+    const p = a.reviewee; const isSelf = a.role === 'self', enviado = a.status === 'submitted';
     const pdf = new PdfDoc(cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback", cycle.name, fullName(p));
     pdf.title(isSelf ? "Autoevaluación" : ROLE_LABEL[a.role], `${fullName(p)}  ·  ${[p.position, TEAM_LABEL[p.team]].filter(Boolean).join("  ·  ")}`);
     pdf.meta([["Cuestionario", form.name], ["Escrita por", fullName(a.reviewer)], ["Estado", a.submitted_at ? `Enviada el ${fmtDT(a.submitted_at)}` : STATUS_LABEL[a.status]]]);
     pdf.para(isSelf
-      ? `Copia de las respuestas que ${fullName(p)} envió en su autoevaluación del proceso ${cycle.name}, con las secciones y preguntas del cuestionario oficial del equipo ${TEAM_LABEL[p.team] || ""}. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`
-      : `Copia de la valoración que ${fullName(a.reviewer)} envió sobre ${fullName(p)} en el proceso ${cycle.name}, con las secciones y preguntas del cuestionario oficial. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`, 8.5, PDFK.grey);
+      ? `${enviado ? `Copia de las respuestas que ${fullName(p)} envió en su autoevaluación` : `Borrador de la autoevaluación de ${fullName(p)} con lo escrito hasta el ${fmtDT(new Date())}, todavía sin enviar,`} del proceso ${cycle.name}, con las secciones y preguntas del cuestionario oficial del equipo ${TEAM_LABEL[p.team] || ""}. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`
+      : `${enviado ? `Copia de la valoración que ${fullName(a.reviewer)} envió sobre` : `Borrador, todavía sin enviar, de la valoración que ${fullName(a.reviewer)} está escribiendo sobre`} ${fullName(p)} en el proceso ${cycle.name}, con las secciones y preguntas del cuestionario oficial. Las competencias se puntúan de 1 (Very Poor) a 5 (Outstanding).`, 8.5, PDFK.grey);
     const groups = questionsFor(form, a.role); let n = 1;
     for(const g of groups){
       pdf.section(n, g.section.title); n++;
@@ -1255,7 +1256,7 @@ async function buildFormPdf(ctx){
       }
       pdf.y += 1;
     }
-    return { pdf, filename: `Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}.pdf` };
+    return { pdf, filename: `Abac - ${cycle.kind === '360' ? "Performance Evaluation" : "Mid Term Feedback"} - ${fullName(p)} - ${isSelf ? "Autoevaluación" : ROLE_LABEL[a.role]}${enviado ? "" : " (borrador)"}.pdf` };
 }
 // PDF de la autoevaluación de una persona desde su ficha (Hugo, 18-sep-2026): el mismo documento que se descarga ella.
 // Siempre se puede descargar, haya enviado todas las respuestas o no; el propio PDF dice en qué estado está.
@@ -1278,6 +1279,8 @@ async function downloadSelfPDF(){
 async function downloadFormPDF(){
   if(!CUR) return;
   toast("Generando el PDF…");
+  // Con el formulario a medias, el PDF lleva lo escrito en este momento: antes se guarda lo que el automático tenía pendiente (Hugo, 22-sep-2026)
+  if(CUR.a.status !== "submitted"){ try{ await saveDraftNow(true); }catch(e){ console.warn(e); } }
   try{ await pdfLoad(); }catch(e){ return toast("No se pudo cargar el generador de PDF", true); }
   try{
     const { pdf, filename } = await buildFormPdf(CUR);
@@ -1295,8 +1298,9 @@ function radar3(canvasId, labels, W, A, S, aLabel){
   const clear = ch => { ch.setActiveElements([]); ch.tooltip.setActiveElements([], {x:0,y:0}); ch.update("none"); };
   const chart = new Chart(ctx, { type:"radar", data:{ labels, datasets:ds }, options:{ responsive:true, maintainAspectRatio:false, animation:{ duration:400 },
     interaction:{ mode:"index", intersect:true },   // sobre un punto: las tres notas de ese eje; en el vacío: nada
-    scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 } }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ font:{ size:11, family:"Inter", weight:"600" }, color:"#2b3240" } } },
-    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:10, usePointStyle:true, font:{ size:11 } } },
+    layout:{ padding:{ top:10, bottom:2, left:12, right:12 } },   // aire alrededor: los nombres de los ejes no tocan el borde de la tarjeta
+    scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 } }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ padding:8, font:{ size:11, family:"Inter", weight:"600" }, color:"#2b3240" } } },
+    plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, boxHeight:8, usePointStyle:true, padding:18, font:{ size:11 } } },
       tooltip:{ mode:"index", intersect:true, callbacks:{ label: c => ` ${c.dataset.label}: ${c.parsed.r != null ? Number(c.parsed.r).toFixed(2) : "—"}` } } },
     onHover:(evt, els, ch) => {  // además: sobre el NOMBRE del eje (Attitude, Ownership…)
       const r = ch.scales.r; if(!r || !r.getPointLabelPosition) return;
@@ -1363,7 +1367,7 @@ function scaleStats(rows){
 }
 // Segunda línea de la araña: la media de peers del rango si la persona es del Deal Team, y si no la media aritmética
 const bandSeries = (band, stats, codes) => band
-  ? { data: codes.map(k => band.byCode[k] == null ? null : band.byCode[k]), label: `Media de peers · ${band.label}` }
+  ? { data: codes.map(k => band.byCode[k] == null ? null : band.byCode[k]), label: "Media de peers" }   // el rango va en el texto de encima de la araña: en la leyenda no cabe (Hugo, 22-sep-2026)
   : { data: codes.map(k => +(stats[k].sum / stats[k].n).toFixed(2)), label: "Media aritmética" };
 function drawResults(view){
   if(!view || !view.cur || view.cur.c.kind !== '360') return;   // en junio no hay gráficos
@@ -1417,7 +1421,9 @@ PAGES.review = async function(arg){
   const peersAll = as.filter(a=>a.role==='peer'), peersDone = peersAll.filter(a=>a.status==='submitted');
   const selfDone = as.some(a=>a.role==='self' && a.status==='submitted');
   const shown = !!(rel && rel.length);
-  const head = (extra) => `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px">${av(p,"lg")}<div style="flex:1"><div class="hd">${esc(fullName(p))}</div><div class="mut sm">${esc(p.position||"")} · ${TEAM_LABEL[p.team]||""} · ${esc(c.name)} · ${selfDone?"autoevaluación enviada":"autoevaluación pendiente"} · compañeros ${peersDone.length}/${peersAll.length}</div></div>
+  // Cabecera: nombre y puesto en una sola línea cada uno; el resto (ciclo, avance) ya está en el título y en la pestaña (Hugo, 22-sep-2026)
+  const nowrap = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+  const head = (extra) => `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px;flex-wrap:wrap">${av(p,"lg")}<div style="flex:1 1 220px;min-width:0"><div class="hd" style="${nowrap}">${esc(fullName(p))}</div><div class="mut sm" style="${nowrap}">${esc(p.position||"")}</div></div>
       <div class="row" style="gap:8px;flex-wrap:wrap;justify-content:flex-end">${extra}</div></div></div>`;
   // Junio: el lead no lee nada hasta que ha enviado su propia valoración
   if(iAmLead && !canSeeAll() && c.kind === 'cascade' && myLead.status !== 'submitted'){
@@ -1470,8 +1476,8 @@ const codesOf = a => new Set(formQuestionsFor(a.form_id, a.role).map(q => q.code
 // Nombres de hoja válidos (31 caracteres, sin []:*?/\) y sin repetir
 function sheetNamer(){ const used = new Set(); return raw => { let n = String(raw).replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(used.has(k)) k = n.slice(0, 28) + " " + (i++); used.add(k); return k; }; }
 // Excel de todas las reviews que YO he enviado (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden
-async function buildReviewsWorkbook(who, cycleId, forArchive){
-  who = who || ME; const soyYo = who.id === ME.id && !forArchive;   // en el ZIP nunca es «mis reviews»; «mine» ya está cogido dentro del bucle de filas
+async function buildReviewsWorkbook(who, cycleId){
+  who = who || ME; const soyYo = who.id === ME.id;   // «mine» ya está cogido dentro del bucle de filas
   const all = (await assignmentsOf(who.id)).filter(a => a.status === 'submitted' && (!cycleId || a.cycle_id === cycleId));
   if(!all.length) return null;
   const { data:ans } = await sb.from("answers").select("*").in("assignment_id", all.map(a => a.id));
@@ -1616,8 +1622,8 @@ async function exportCycleExcel(cycleId, revieweeId, opts){
   toast(`Excel: ${built.people} persona${built.people>1?'s':''}, ${built.answers} respuestas`);
 }
 /* ---------- ZIP con todo lo de un ciclo: una carpeta por persona (Hugo, 15-sep-2026) ----------
-   Para quien ve todas las reviews: descarga de una vez la autoevaluación de cada persona en PDF, el Excel con las reviews
-   que ella ha enviado a los demás y el PDF de sus resultados, para archivarlo en la carpeta confidencial de Abac. */
+   Para quien ve todas las reviews: descarga de una vez la autoevaluación de cada persona en PDF, el Excel con todas las
+   respuestas que ha recibido (el mismo de su ficha) y el PDF de sus resultados, para archivarlo en la carpeta confidencial de Abac. */
 function loadJSZip(){ return loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", () => !!window.JSZip); }
 const zipSafe = s => String(s).replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
 let ZIP_CANCEL = false;
@@ -1625,7 +1631,7 @@ async function exportCycleZip(cycleId){
   if(!canSeeAll()) return toast("Solo quien ve todas las reviews", true);
   const c = byId(CYCLES, cycleId); ZIP_CANCEL = false;
   openModal(`<h2>Descargar todas las respuestas</h2>
-    <p class="sm">De <b>${esc(c.name)}</b>, una carpeta por persona con su autoevaluación en PDF, el Excel de las reviews que ha enviado y el PDF de sus resultados.</p>
+    <p class="sm">De <b>${esc(c.name)}</b>, una carpeta por persona con su autoevaluación en PDF, el Excel con todas las respuestas que ha recibido y el PDF de sus resultados.</p>
     <p class="sm mut">Tarda un poco: se generan todos los PDF y los Excel en el navegador. No cierres la pestaña.</p>
     <div class="row" style="align-items:center;gap:10px;margin-top:10px"><div class="spin"></div><span class="sm b" id="zipState">Preparando…</span></div>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="ZIP_CANCEL=true;closeModal()">Cancelar</button></div>`);
@@ -1651,9 +1657,9 @@ async function exportCycleZip(cycleId){
         const { pdf, filename } = await buildFormPdf({ a: sa, form, answers: byQ, cycle: c });
         items.push([filename, pdf.blob()]);
       }
-      // 2. el Excel de las reviews que ella ha enviado en este ciclo
-      const wbk = await buildReviewsWorkbook(p, cycleId, true);
-      if(wbk) items.push([wbk.filename, await wbk.wb.xlsx.writeBuffer()]);
+      // 2. el Excel con todas las respuestas que ha recibido: el mismo que descarga su lead desde la ficha (Hugo, 22-sep-2026)
+      const wbk = await buildCycleWorkbook(cycleId, p.id, { summary:false });
+      if(wbk) items.push([`Respuestas recibidas - ${fullName(p)}.xlsx`, await wbk.wb.xlsx.writeBuffer()]);
       // 3. el PDF de sus resultados
       const view = await buildResultsView(p.id, cycleId, async cid => { const { data } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); return data || []; });
       if(view && view.cur && (((view.cur.rows || []).length) || view.cur.fr)){
@@ -1705,7 +1711,7 @@ PAGES.partners = async function(){
   return `<div class="row" style="margin-bottom:14px"><select class="inp" style="width:auto" onchange="PART_CYCLE=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.name)} · ${CYCLE_STATUS[x.status]}</option>`).join("")}</select>
      <span class="sm mut">${Object.keys(people).length} personas evaluadas · ${(rels||[]).length} con resultados mostrados</span>
      <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel con todas las respuestas</button>
-     <button class="btn" onclick="exportCycleZip('${c.id}')" title="Un ZIP con una carpeta por persona: su autoevaluación en PDF, el Excel de las reviews que ha enviado y el PDF de sus resultados"><i class="ti ti-file-zip"></i> Descargar respuestas (ZIP)</button></div>
+     <button class="btn" onclick="exportCycleZip('${c.id}')" title="Un ZIP con una carpeta por persona: su autoevaluación en PDF, el Excel con todas las respuestas que ha recibido y el PDF de sus resultados"><i class="ti ti-file-zip"></i> Descargar respuestas (ZIP)</button></div>
    <div class="card"><table><tr><th>Persona</th><th>Equipo</th><th>Auto</th><th>Compañeros</th><th>Lead</th><th>Resumen final</th><th>Resultados</th><th></th></tr>
    ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); const fr = (frs||[]).find(f=>f.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${fr ? `<span class="y">guardado</span>` : '<span class="mut">no</span>'}</td><td class="xs">${rel?`<span class="y">mostrados ${fmtD(rel.released_at)}</span>`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Abrir</button></td></tr>`; }).join("")}</table>
    ${!Object.keys(people).length?`<div class="emptystate">Este ciclo no tiene asignaciones.</div>`:""}</div>`;
