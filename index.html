@@ -28,6 +28,7 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* Todo el lienzo al 80%, igual que el dashboard del Portfolio Hub, para que las dos apps se vean del mismo tamano
    con el zoom por defecto del navegador (Hugo, 23-sep-2026). El 125% compensa la escala: 125 x 0,8 = 100.
    Se usa transform y no zoom: zoom rompe las coordenadas del raton de Chart.js. */
@@ -944,6 +945,8 @@ function radar(canvasId, labels, datasets){
 const rds = (label, data, color, dash) => ({ label, data, borderColor:color, backgroundColor: dash ? "transparent" : color + "22", pointBackgroundColor:color, borderWidth:2, borderDash: dash ? [4,3] : undefined, pointRadius:3 });
 function paintYear(){ const b = document.getElementById("yearBadge"); if(!b) return; const c = VIEW_CYCLE || CYCLES[0];
   b.innerHTML = c ? `<span class="y">${esc(cycleYear(c))}</span><span class="c">${esc(cname(c))}</span>` : ""; }
+// <td class="row"> (avatar + nombre) → el contenido va en un div flexible dentro de la celda, para que las líneas de la tabla cuadren
+function fixRowCells(root){ (root || document).querySelectorAll("td.row").forEach(td => { const d = document.createElement("div"); d.className = "row"; d.style.flexWrap = "nowrap"; while(td.firstChild) d.appendChild(td.firstChild); td.classList.remove("row"); td.appendChild(d); }); }
 async function render(soft){
   const seq = ++RENDER_SEQ; killCharts();
   renderNav(); renderUserbox();
@@ -951,7 +954,7 @@ async function render(soft){
   const el = document.getElementById("content");
   if(!soft) el.innerHTML = skeleton();
   VIEW_CYCLE = null;
-  try{ const html = await PAGES[PAGE](ARG); if(seq !== RENDER_SEQ) return; el.innerHTML = `<div class="page">${html}</div>`; paintYear(); enhanceSelects(el); if(AFTER[PAGE]) await AFTER[PAGE](ARG); renderNav(); renderUserbox(); }
+  try{ const html = await PAGES[PAGE](ARG); if(seq !== RENDER_SEQ) return; el.innerHTML = `<div class="page">${html}</div>`; fixRowCells(el); paintYear(); enhanceSelects(el); if(AFTER[PAGE]) await AFTER[PAGE](ARG); renderNav(); renderUserbox(); }
   catch(e){ if(seq !== RENDER_SEQ) return; el.innerHTML = `<div class="page"><div class="alert warn"><i class="ti ti-alert-triangle"></i> ${esc(trErr(e.message||e))}</div></div>`; console.error(e); }
 }
 </script>
@@ -1019,7 +1022,7 @@ PAGES.tasks = async function(){
         <td><span class="pill ${a.role==='self'?'':'warn'}">${ROLE_LABEL[taskRole(a.role)]}</span></td>
         <td class="sm mut">${esc(f?formName(f.name):"—")}</td>
         <td>${a.status==='submitted'?`<span class="y">Submitted</span> <span class="xs mut">${fmtD(a.submitted_at)}</span>`:['closed','published'].includes(c.status)?`<span class="mut">No answer ${cycleYear(c)}</span>`:a.status==='draft'?`<span class="p">Draft</span>`:`<span class="mut">Pending</span>`}</td>
-        <td style="text-align:right">${prevC ? (pa => pa ? `<button class="btn sm ghost" style="margin-right:6px" title="Your answer about this person in ${esc(cname(prevC, false))}" onclick="go('form','${pa.id}')"><i class="ti ti-history"></i> View ${prevYear}</button>` : `<span class="xs mut" style="margin-right:10px">No answer ${prevYear}</span>`)(prevOf(a)) : ""}${a.status!=='submitted'&&c.status==='draft'?`<span class="xs mut" style="margin-right:8px">opens soon</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'View':c.status==='open'?(a.status==='draft'?'Continue':'Start'):'View'}</button></td></tr>`; }).join("")}
+        <td style="text-align:right"><div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:nowrap;white-space:nowrap">${prevC ? (pa => pa ? `<button class="btn sm ghost" title="Your answer about this person in ${esc(cname(prevC, false))}" onclick="go('form','${pa.id}')"><i class="ti ti-history"></i> View ${prevYear}</button>` : `<span class="xs mut">No answer ${prevYear}</span>`)(prevOf(a)) : ""}${a.status!=='submitted'&&c.status==='draft'?`<span class="xs mut">· opens soon</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'View':c.status==='open'?(a.status==='draft'?'Continue':'Start'):'View'}</button></div></td></tr>`; }).join("")}
      </table></div>`; }).join("")
    : `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-clipboard-check"></i></div><div class="t">You have no reviews assigned</div><div class="d">When a review cycle opens, your self-assessment and the peer reviews you have to complete will appear here.</div>${isAdmin()?`<button class="btn pri" style="margin-top:14px" onclick="go('admin')"><i class="ti ti-plus"></i> Create a cycle</button>`:""}</div></div>`}`;
 };
@@ -1430,7 +1433,7 @@ async function buildResultsPdf(view, into){
         pdf.y += rh + 12;
         // distribución de notas: bloque aparte dentro del apartado, separado de las arañas por una línea con aire a ambos lados;
         // el subtítulo, la leyenda y la primera fila de gráficos van juntos (si no caben, el bloque entero pasa de página y la línea no se dibuja)
-        const cols = 4, g2 = 4, cw = (pdf.w - g2 * (cols - 1)) / cols, chH = 27, capH = 8, cellH = capH + chH + 3;
+        const cols = 4, g2 = 4, cw = (pdf.w - g2 * (cols - 1)) / cols, chH = 27, capH = 14, cellH = capH + chH + 3;   // capH: título + hasta 3 líneas de cifras (Hugo, 09-nov-2026: se pisaban)
         if(!pdf.ensure(9 + 11 + cellH + 2)){ pdf.stroke(PDFK.line); pdf.d.setLineWidth(0.2); pdf.d.line(pdf.x, pdf.y, pdf.x + pdf.w, pdf.y); pdf.y += 9; }
         pdf.font("bold", 8.5); pdf.color(PDFK.ink); pdf.d.text("Distribution of the scores received, by competency", pdf.x, pdf.y + 3.2);
         pdf.font("normal", 7); pdf.color(PDFK.grey);
@@ -1441,7 +1444,9 @@ async function buildResultsPdf(view, into){
         pdf.y += 11;
         codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + g2); const y0 = pdf.y;
           pdf.font("bold", 7.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 2.8);
-          pdf.font("normal", 6.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(distSub(st[k], cur.band, k, hasPrev ? ps[k] : null)), x, y0 + 6);
+          pdf.font("normal", 6.5); pdf.color(PDFK.grey);
+          { const lines = distSubLines(st[k], cur.band, k, hasPrev ? ps[k] : null).flatMap(t => pdf.d.splitTextToSize(pdfTxt(t), cw - 1)).slice(0, 3);
+            lines.forEach((t, li) => pdf.d.text(t, x, y0 + 6 + li * 2.7)); }
           pdf.image(chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self, st._n, hasPrev ? ps._n : null), 420, 280), x, y0 + capH, cw, chH);
           if(col === cols - 1 || j === codes.length - 1) pdf.y += cellH; });
         pdf.y += 2;
@@ -1696,6 +1701,13 @@ function bars2(canvasId, cur, prv, labelCur, labelPrev, selfScore, totCur, totPr
 //    respuestas, y filas response_key 'h' con cuántas opiniones dieron cada nota. Así a su navegador no llega ninguna opinión suelta.
 // Texto bajo cada gráfico de barras (Hugo, 09-nov-2026): siempre la media ponderada y la autoevaluación; la media de peers si la
 // persona tiene rango (Deal Team); y la ponderada del año anterior. Nunca la media simple (sale solo en el Excel).
+// Para el PDF: las mismas cifras en dos líneas (ponderada y autoevaluación / peers y año anterior); cada una se parte si no cabe
+function distSubLines(o, band, k, prevO){
+  const f = v => v == null || !isFinite(v) ? "—" : (+v).toFixed(2);
+  const l1 = [`weighted ${f(o.w ? o.wsum / o.w : null)}`, `self-assessment ${o.self == null ? "—" : o.self}`].join(" · ");
+  const p2 = []; if(band && band.byCode && band.byCode[k] != null) p2.push(`peer average ${f(band.byCode[k])}`); if(prevO) p2.push(`previous year ${f(prevO.w ? prevO.wsum / prevO.w : null)}`);
+  return p2.length ? [l1, p2.join(" · ")] : [l1];
+}
 function distSub(o, band, k, prevO){
   const f = v => v == null || !isFinite(v) ? "—" : (+v).toFixed(2);
   const parts = [`weighted ${f(o.w ? o.wsum / o.w : null)}`, `self-assessment ${o.self == null ? "—" : o.self}`];
