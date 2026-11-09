@@ -1500,7 +1500,7 @@ function personCover(pdf, p, lead, k, n, hasSelf){
   pdf.y = y0 + 75;
 }
 async function downloadSummariesPDF(cycleId){
-  if(!ME.is_partner) return toast("Partners only", true);
+  if(!(ME.is_partner || canSeeAll())) return toast("Only partners and people with access to all reviews", true);   // Hugo, 09-nov-2026: también quien ve todas las reviews (Cristina)
   const c = byId(CYCLES, cycleId); if(!c) return;
   const { data:frs, error } = await sb.from("final_reviews").select("*").eq("cycle_id", cycleId);
   if(error) return err(error, "PDF");
@@ -2134,7 +2134,7 @@ PAGES.partners = async function(){
      <span class="sm mut">${Object.keys(people).length} people reviewed · ${(rels||[]).length} with results shown</span>
      <span style="flex:1"></span><button class="btn" onclick="exportCycleExcel('${c.id}')"><i class="ti ti-file-spreadsheet"></i> Excel with all answers</button>
      <button class="btn" onclick="exportCycleZip('${c.id}')" title="A ZIP with one folder per person: their self-assessment as a PDF, the Excel with all the answers they received and the PDF of their results"><i class="ti ti-file-zip"></i> Download answers (ZIP)</button>
-     ${ME.is_partner ? `<button class="btn" onclick="downloadSummariesPDF('${c.id}')" title="A single PDF with the final summary from every lead reviewer in this cycle"><i class="ti ti-file-type-pdf"></i> PDF with all summaries</button>` : ""}</div>
+     ${ME.is_partner || canSeeAll() ? `<button class="btn" onclick="downloadSummariesPDF('${c.id}')" title="A single PDF with the final summary from every lead reviewer in this cycle"><i class="ti ti-file-type-pdf"></i> PDF with all summaries</button>` : ""}</div>
    <div class="card"><table><tr><th>Person</th><th>Team</th><th>Self</th><th>Peers</th><th>Lead</th><th>Final summary</th><th>Results</th><th></th></tr>
    ${Object.entries(people).sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([id,p]) => { const rel = (rels||[]).find(r=>r.reviewee_id===id); const fr = (frs||[]).find(f=>f.reviewee_id===id); return `<tr class="click" onclick="go('review',{cycle:'${c.id}',reviewee:'${id}'})"><td class="row">${av(person(id),"sm")} ${esc(p.name)}</td><td>${pillTeam(p.team)}</td><td>${dot(p.self)}</td><td>${dot(p.peer)}</td><td>${dot(p.lead)}</td><td class="xs">${fr ? `<span class="y">saved</span>` : '<span class="mut">no</span>'}</td><td class="xs">${rel?`<span class="y">shown ${fmtD(rel.released_at)}</span>`:'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm">Open</button></td></tr>`; }).join("")}</table>
    ${!Object.keys(people).length?`<div class="emptystate">This cycle has no assignments.</div>`:""}</div>`;
@@ -3315,7 +3315,7 @@ async function editPerson(id){
     <div><label class="xs mut">E-mail (Microsoft login)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Position</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
     <div><label class="xs mut">Team</label><select class="inp" id="p_team"><option value="">—</option>${Object.entries(TEAM_LABEL).map(([k,l])=>`<option value="${k}" ${p.team===k?"selected":""}>${l}</option>`).join("")}</select></div><div><label class="xs mut">Start date</label>${dateField("p_sd", p.start_date)}</div></div>
    <div class="two"><div><label class="xs mut">Leaving date <span class="xs mut">(once set, the person becomes inactive and is left out of later cycles)</span></label>${dateField("p_ed", p.end_date)}</div><div></div></div>
-   <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Partner <span class="xs mut">(firm role: shown as a label and gives partner access, e.g. the PDF with all summaries; how much their opinion weighs depends on the cycle's weighting)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Partner <span class="xs mut">(firm role: shown as a label; how much their opinion weighs depends on the cycle's weighting)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Sees all the firm's reviews <span class="xs mut">(All reviews)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Is evaluated <span class="xs mut">(included as a reviewee in the cycles)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin <span class="xs mut">(cycles, assignments and people)</span></label></div>
