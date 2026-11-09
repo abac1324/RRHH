@@ -507,16 +507,27 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 /* Que todo quepa en cualquier dispositivo (Hugo, 09-nov-2026: «si algo no cabe según el dispositivo, que se ajuste»).
    Una tabla más ancha que su tarjeta se desplaza de lado DENTRO de la tarjeta, sin salirse ni romper la página. */
 .card:has(table){overflow-x:auto}
-/* Pantallas estrechas (móvil en vertical): el menú pasa arriba, en una fila que se ajusta, y todo va a una columna */
+/* Barra lateral plegable (Hugo, 09-nov-2026: «que la barra lateral se pueda abrir y cerrar para que no ocupe tanta pantalla»).
+   Pantalla ancha: el botón del menú la oculta o la muestra (se recuerda). Pantalla estrecha (iPad en vertical, móvil): empieza
+   cerrada y sale por encima desde la izquierda; se cierra al elegir una pestaña o al tocar fuera. */
+.menu-btn{flex:0 0 auto;width:40px;height:40px;padding:0;justify-content:center;margin-left:-8px}
+.menu-btn i{font-size:19px;line-height:1}
+.sidebar{transition:margin-left var(--d3) var(--ease),transform var(--d3) var(--ease),box-shadow var(--d3) var(--ease)}
+body.side-collapsed .sidebar{margin-left:-256px}
+body.side-init .sidebar{transition:none}
+.side-backdrop{display:none}
+@media(max-width:1000px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;height:100%;z-index:50;margin-left:0 !important;transform:translateX(-102%)}
+  body.side-open .sidebar{transform:none;box-shadow:0 18px 50px rgba(14,33,80,.28)}
+  body.side-open .side-backdrop{display:block;position:fixed;inset:0;background:rgba(14,33,80,.28);z-index:40;animation:fadein var(--d2) var(--ease)}
+}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+/* Móvil en vertical: todo a una columna y márgenes más cortos */
 @media(max-width:760px){
-  body{flex-direction:column}
-  .sidebar{position:static;width:auto;flex:0 0 auto;height:auto;padding:12px 14px;border-right:none;border-bottom:1px solid var(--line);overflow:visible}
-  .brand{flex-direction:row;align-items:center;padding:0 0 8px}.brandlogo{width:120px}
-  .nav{flex-direction:row;flex-wrap:wrap;gap:4px;flex:none}.nav .grp{display:none}.nav a{padding:7px 10px;font-size:13px}
-  .userbox{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px}.userbox label,.userbox .role{display:none}.userbox .uc{margin-bottom:0}
-  .main{min-height:0}
-  .topbar{padding:0 16px;gap:10px}.content{padding:16px 14px 10px}
+  .topbar{padding:0 14px;gap:10px}.content{padding:16px 14px 10px}
   .g2,.g3,.g4,.two,.steps4,.opts,.dist,.fr-read,.radars{grid-template-columns:1fr !important}
+  .res-head{flex-wrap:wrap;gap:8px}.res-head > div:first-child{flex:1 1 100% !important}
+  .footer{padding:8px 14px}.footer .fr{display:none}
 }
 </style>
 </head>
@@ -530,8 +541,10 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
   <div class="sidelinks"><a id="lnkGuide" onclick="go('guide')"><i class="ti ti-help-circle"></i> Guide</a></div>
   <div class="userbox" id="userbox"></div>
 </aside>
+<div class="side-backdrop" onclick="toggleSidebar(false)"></div>
 <div class="main">
   <div class="topbar">
+    <button class="btn menu-btn" id="btnMenu" onclick="toggleSidebar()" aria-label="Show or hide the menu" title="Show or hide the menu"><i class="ti ti-layout-sidebar-left-collapse"></i></button>
     <h1 id="title">My reviews</h1>
     <div class="sp"></div>
     <div class="yearbadge" id="yearBadge" title="Year of the cycle you are viewing"></div>
@@ -660,6 +673,21 @@ function syncSelects(root){ (root || document).querySelectorAll("select[data-enh
 (() => { const setH = () => document.documentElement.style.setProperty("--app-h", (window.visualViewport ? window.visualViewport.height : window.innerHeight) + "px");
   setH(); addEventListener("resize", setH); addEventListener("orientationchange", () => setTimeout(setH, 250)); if(window.visualViewport) visualViewport.addEventListener("resize", setH); })();
 const UI_SCALE = 0.8;
+// Barra lateral plegable (ver el CSS de .menu-btn)
+const sideNarrow = () => matchMedia("(max-width:1000px)").matches;
+function paintMenuBtn(){ const b = document.getElementById("btnMenu"); if(!b) return; const shown = sideNarrow() ? document.body.classList.contains("side-open") : !document.body.classList.contains("side-collapsed");
+  b.innerHTML = `<i class="ti ti-layout-sidebar-left-${shown ? "collapse" : "expand"}"></i>`; }
+function toggleSidebar(show){
+  const b = document.body;
+  if(sideNarrow()){ const open = show === undefined ? !b.classList.contains("side-open") : !!show; b.classList.toggle("side-open", open); }
+  else { const hide = show === undefined ? !b.classList.contains("side-collapsed") : !show; b.classList.toggle("side-collapsed", hide); try{ localStorage.setItem("abac_side_hidden", hide ? "1" : "0"); }catch(e){} }
+  paintMenuBtn(); setTimeout(() => window.dispatchEvent(new Event("resize")), 260);   // los gráficos se reajustan al nuevo ancho
+}
+(() => { document.body.classList.add("side-init");   // al cargar se coloca sin animación; luego ya anima
+  try{ if(localStorage.getItem("abac_side_hidden") === "1") document.body.classList.add("side-collapsed"); }catch(e){}
+  setTimeout(() => document.body.classList.remove("side-init"), 400);
+  matchMedia("(max-width:1000px)").addEventListener("change", () => { document.body.classList.remove("side-open"); paintMenuBtn(); });
+  setTimeout(paintMenuBtn, 0); })();
 const uiRect = el => { const r = el.getBoundingClientRect(); const k = 1 / UI_SCALE;
   return { left:r.left*k, right:r.right*k, top:r.top*k, bottom:r.bottom*k, width:r.width*k, height:r.height*k }; };
 const uiVW = () => window.innerWidth / UI_SCALE, uiVH = () => window.innerHeight / UI_SCALE;
@@ -904,7 +932,7 @@ function renderUserbox(){
   enhanceSelects(document.getElementById("userbox"));
 }
 let REVIEW_FROM = null;   // de dónde se abrió la ficha de una persona, para que «Back» vuelva allí
-function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
+function go(page, arg){ document.body.classList.remove("side-open"); paintMenuBtn(); if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
 let RENDER_SEQ = 0, CHARTS = [];
 function killCharts(){ CHARTS.forEach(c => { try{ c.destroy(); }catch(e){} }); CHARTS = []; }
 function radar(canvasId, labels, datasets){
