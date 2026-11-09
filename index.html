@@ -831,7 +831,10 @@ async function setDevUser(email){
 async function enter(email){
   try{
     ME = await loadMe(email);
-    if(!ME){ document.getElementById("gate").hidden = true; document.getElementById("content").innerHTML = `<div class="card"><h3>No access</h3><p class="sm">The e-mail <b>${esc(email)}</b> is not registered in the app. Ask the administrators to add you.</p>${DEV_MODE?"":`<button class="btn" onclick="logout()">Sign out</button>`}</div>`; return; }
+    // Hugo (09-nov-2026): quien está desactivado no entra. El servidor ya no le da nada (my_id() solo reconoce a los activos);
+    // aquí además se corta si la ficha llega desactivada o con la fecha de baja ya pasada.
+    if(ME && (ME.active === false || (ME.end_date && ME.end_date < new Date().toISOString().slice(0, 10)))) ME = null;
+    if(!ME){ document.getElementById("gate").hidden = true; document.getElementById("content").innerHTML = `<div class="card"><h3>No access</h3><p class="sm">The account <b>${esc(email)}</b> does not have access to the app: it is not registered or it is no longer active. If you think this is a mistake, ask the administrators.</p>${DEV_MODE?"":`<button class="btn" onclick="logout()">Sign out</button>`}</div>`; return; }
     await loadCatalog(); await refreshLeadCache();
     document.getElementById("gate").hidden = true;
     if(!PAGES[PAGE] || !canSee(PAGE) || ["form","review"].includes(PAGE)) PAGE = "tasks";   // las páginas de detalle dependen del usuario anterior
@@ -878,7 +881,8 @@ function renderUserbox(){
     <div class="role">${roles.join("")}</div>`;
   enhanceSelects(document.getElementById("userbox"));
 }
-function go(page, arg){ PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
+let REVIEW_FROM = null;   // de dónde se abrió la ficha de una persona, para que «Back» vuelva allí
+function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
 let RENDER_SEQ = 0, CHARTS = [];
 function killCharts(){ CHARTS.forEach(c => { try{ c.destroy(); }catch(e){} }); CHARTS = []; }
 function radar(canvasId, labels, datasets){
@@ -1098,7 +1102,7 @@ async function submitCurrent(){
   const missing = [];
   for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(isRequired(q, null, g.section) && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
   if(missing.length){ openModal(`<h2>Required answers missing</h2><ul class="sm">${missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul><div style="text-align:right"><button class="btn pri" onclick="closeModal()">Back to the form</button></div>`); return; }
-  openModal(`<h2>Submit your answer?</h2><p class="sm"><b>Once submitted you will not be able to edit it again.</b> If there is a mistake, the administrators can reopen it. ${CUR.a.role==='peer'?"No other peer and not the person being reviewed will see your answer; only their lead reviewer.":CUR.a.role==='lead'?"Afterwards you will be able to read the peers' answers and write the final summary.":"Your lead reviewer will read it when writing your final summary."}</p>
+  openModal(`<h2>Submit your answer?</h2><p class="sm"><b>Once submitted you will not be able to edit it again.</b> If there is a mistake, the administrators can reopen it. ${CUR.a.role==='peer'?"No other peer and not the person being reviewed will see your answer; only their lead reviewer and the partners with access to all reviews.":CUR.a.role==='lead'?"Afterwards you will be able to read the peers' answers and write the final summary.":"Your lead reviewer will read it when writing your final summary."}</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-send"></i> Submit</button></div>`);
 }
 async function doSubmit(){
@@ -1156,7 +1160,7 @@ function resultsHTML(view, who, edit){
   const box = (k, label, ph) => canEdit
     ? `<div class="fr-edit"><label>${label}</label><textarea id="fr_${k}" placeholder="${ph||""}">${esc(f(k))}</textarea></div>`
     : `<div class="fr-box full"><div class="k">${label}</div><div class="v ${f(k)?'':'empty'}">${f(k) ? esc(f(k)) : "—"}</div></div>`;
-  const notYet = tu ? `<div class="hint" style="margin-bottom:14px">Your lead reviewer has not sent the summary for this cycle yet.</div>` : (canEdit ? "" : `<div class="hint" style="margin-bottom:14px">The lead reviewer has not written the summary yet.</div>`);
+  const notYet = tu ? `<div class="hint" style="margin-bottom:14px">Your lead reviewer did not write a final summary for this review.</div>` : (canEdit ? "" : `<div class="hint" style="margin-bottom:14px">The lead reviewer has not written the summary yet.</div>`);
   if(c.kind !== '360'){
     // ---- Junio (Mid Term Feedback): objetivos de diciembre arriba, luego el resumen del lead. Sin gráficos. ----
     const decBlock = dec && dec.fr && dec.fr.objectives ? prevObjHTML(dec.c, dec.fr, who) : "";
@@ -1173,8 +1177,8 @@ function resultsHTML(view, who, edit){
       <div class="radar"><h4>${prev ? esc(enExport(prev.c.period_label||prev.c.name)) : "Previous year"}</h4>${hasPrev ? `<div class="sub">The same lines from the previous year · ${pstats._n} responses</div><div class="box"><canvas id="rad_prev"></canvas></div>` : `<div class="empty-mini">There is no earlier review of the same type to compare with yet.</div>`}</div></div>
       <div class="res-sub">How many responses gave each score <span class="res-note">· in red, ${tu ? "your" : "their"} self-assessment score · percentages are over the people who responded that year</span></div>
       ${hasPrev ? `<div class="legend" style="margin:-4px 0 10px"><span><i style="background:#0e2150"></i>${esc(enExport(c.period_label||c.name))}</span><span><i style="background:#a9cdf4"></i>${esc(enExport(prev.c.period_label||prev.c.name))}</span></div>` : ""}
-      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">average ${(stats[k].sum/stats[k].n).toFixed(2)}${hasPrev && pstats[k] ? ` · previous year ${(pstats[k].sum/pstats[k].n).toFixed(2)}` : ""}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
-    : `<div class="hint">No scores have been submitted in this cycle yet.</div>`;
+      <div class="dist">${Object.keys(stats).filter(k=>k!=="_n").map((k,j)=>`<div class="d1"><h5 title="${esc(stats[k].text)}">${esc(stats[k].text)}</h5><div class="sub">${distSub(stats[k], cur.band, k, hasPrev ? pstats[k] : null)}</div><div class="box"><canvas id="dist_${j}"></canvas></div></div>`).join("")}</div>`
+    : (cur.err ? `<div class="alert warn"><i class="ti ti-lock"></i> You do not have permission to see the scores of this cycle.</div>` : `<div class="hint">No scores have been submitted in this cycle yet.</div>`);
   const yearLabel = canEdit ? `Objectives <input type="text" id="fr_year" value="${yr}" style="width:64px;display:inline-block;padding:2px 6px;margin-left:6px;font-size:11px">` : `Objectives ${yr}`;
   return `${prevObj}
     ${objOnly ? "" : written ? `<div class="fr-read one">${box("recap", "Objectives Recap", "Which of last year's objectives were met and which were not…")}</div>` : notYet}
@@ -1381,7 +1385,7 @@ async function buildResultsPdf(view, into){
         pdf.y += 11;
         codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + g2); const y0 = pdf.y;
           pdf.font("bold", 7.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 2.8);
-          pdf.font("normal", 6.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(`average ${(st[k].sum / st[k].n).toFixed(2)}${hasPrev && ps[k] ? ` · previous ${(ps[k].sum / ps[k].n).toFixed(2)}` : ""}`), x, y0 + 6);
+          pdf.font("normal", 6.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(distSub(st[k], cur.band, k, hasPrev ? ps[k] : null)), x, y0 + 6);
           pdf.image(chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self), 420, 280), x, y0 + capH, cw, chH);
           if(col === cols - 1 || j === codes.length - 1) pdf.y += cellH; });
         pdf.y += 2;
@@ -1455,6 +1459,16 @@ async function downloadSummariesPDF(cycleId){
     rows.sort((a, b) => rankCompare(person(a.reviewee_id), person(b.reviewee_id)));
     const { data:selfs } = await sb.from("assignments").select(ASSIGN_SELECT).eq("cycle_id", cycleId).eq("role", "self");
     const pdf = new PdfDoc("Lead Reviewer Summaries", c.name, "");
+    // Hugo (09-nov-2026): primera página con quién NO está (evaluado en el ciclo, sin resumen guardado)
+    { const { data:evs } = await sb.from("assignments").select("reviewee_id").eq("cycle_id", cycleId);
+      const con = new Set(rows.map(r => r.reviewee_id));
+      const faltan = [...new Set((evs || []).map(a => a.reviewee_id))].filter(id => !con.has(id)).map(id => person(id)).filter(Boolean).sort((a, b) => fullName(a).localeCompare(fullName(b)));
+      if(faltan.length){ const y0 = pdf.y + 40;
+        pdf.font("bold", 8); pdf.color(PDFK.faint); pdf.d.text("NOT INCLUDED", pdf.x, y0, { charSpace:0.6 });
+        pdf.font("bold", 18); pdf.color(PDFK.navy); pdf.d.text(pdfTxt(`${faltan.length} ${faltan.length === 1 ? "person has" : "people have"} no saved summary`), pdf.x, y0 + 11);
+        pdf.font("normal", 10); pdf.color(PDFK.grey); pdf.d.text(pdfTxt("They are reviewed in this cycle but their lead reviewer has not saved a final summary, so they are not in this PDF."), pdf.x, y0 + 19);
+        pdf.font("normal", 9.5); pdf.color(PDFK.ink); faltan.forEach((q, j) => pdf.d.text(pdfTxt(`${fullName(q)}  ·  ${q.position || ""}`), pdf.x + 2, y0 + 30 + j * 6));
+        pdf.newPage(); } }
     for(let i = 0; i < rows.length; i++){
       const p = person(rows[i].reviewee_id), lead = rows[i].lead_id ? person(rows[i].lead_id) : null;
       const selfA = (selfs || []).find(a => a.reviewee_id === p.id), form = selfA ? byId(FORMS, selfA.form_id) : null;
@@ -1623,6 +1637,15 @@ function bars2(canvasId, cur, prv, labelCur, labelPrev, selfScore){
 //  · fila a fila (results_for: lead y socios, que pueden ver las respuestas): una fila por opinión, con su peso;
 //  · agregado (my_results, la propia persona, SQL 33): por competencia una fila role 'agg' con la media ponderada y el nº de
 //    respuestas, y filas response_key 'h' con cuántas opiniones dieron cada nota. Así a su navegador no llega ninguna opinión suelta.
+// Texto bajo cada gráfico de barras (Hugo, 09-nov-2026): siempre la media ponderada y la autoevaluación; la media de peers si la
+// persona tiene rango (Deal Team); y la ponderada del año anterior. Nunca la media simple (sale solo en el Excel).
+function distSub(o, band, k, prevO){
+  const f = v => v == null || !isFinite(v) ? "—" : (+v).toFixed(2);
+  const parts = [`weighted ${f(o.w ? o.wsum / o.w : null)}`, `self-assessment ${o.self == null ? "—" : o.self}`];
+  if(band && band.byCode && band.byCode[k] != null) parts.push(`peer average ${f(band.byCode[k])}`);
+  if(prevO) parts.push(`previous year ${f(prevO.w ? prevO.wsum / prevO.w : null)}`);
+  return parts.join(" · ");
+}
 function scaleStats(rows){
   const out = {}; const keys = new Set(); let aggN = 0;
   const get = r => (out[r.question_code] ||= { text:r.question_text, self:null, sum:0, n:0, wsum:0, w:0 });
@@ -1712,7 +1735,9 @@ PAGES.review = async function(arg){
     return head(`<span class="pill gray">your review: ${STATUS_LABEL[myLead.status].toLowerCase()}</span>`) + `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-lock"></i></div><div class="t">Your review first</div><div class="d">In the Mid Term Feedback you answer without seeing the self-assessment or what the peers say. Once you submit your review, you will be able to read everything here and write the final summary.</div><button class="btn pri" style="margin-top:14px" onclick="go('form','${myLead.id}')"><i class="ti ti-pencil"></i> ${myLead.status==='draft'?'Continue my review':'Write my review'}</button></div></div>
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('team')">Back</button></div>`;
   }
-  const view = await buildResultsView(p.id, c.id, async cid => { const { data, error:e } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); if(e){ console.warn(e.message); return []; } return data || []; });
+  let rowsErr = null;
+  const view = await buildResultsView(p.id, c.id, async cid => { const { data, error:e } = await sb.rpc("results_for", { p_cycle: cid, p_reviewee: p.id }); if(e){ console.warn(e.message); if(cid === c.id) rowsErr = e.message; return []; } return data || []; });
+  if(rowsErr) view.cur.err = rowsErr;
   if(objOnly){ view.cur.fr = fr; view.objOnly = true; }
   window.RES_VIEW = view; window.REV_FR = fr;
   const status = shown ? `<span class="pill ok">results shown to ${esc(p.first_name)} on ${fmtD(rel[0].released_at)}</span>` : (fr ? `<span class="pill warn">summary saved · results not shown</span>` : `<span class="pill gray">not shown</span>`);
@@ -1721,19 +1746,22 @@ PAGES.review = async function(arg){
   const locked = shown && !rel[0].summary_reopened;
   const canEdit = iAmLead && !locked;
   const pending = []; if(!selfDone) pending.push("the self-assessment"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} peer${peersAll.length-peersDone.length>1?'s':''}`);
+  // Hugo (09-nov-2026): si al lead le falta su propia review (la que responde como uno más), se le avisa; no es obligatorio
+  const myOwnPending = iAmLead && myLead.status !== 'submitted';
   const frStatus = fr ? `<span class="pill ok">saved · ${fmtDT(fr.updated_at)}</span>` : `<span class="pill gray">not started</span>`;
   return head(`${status}${objOnly ? "" : `<button class="btn sm" onclick="exportCycleExcel('${c.id}','${p.id}')"><i class="ti ti-file-spreadsheet"></i> Excel with all answers</button>`}${selfA && !objOnly ? `<button class="btn sm" onclick="downloadSelfPDF()" title="The same PDF ${esc(p.first_name)} downloads of their self-assessment"><i class="ti ti-file-type-pdf"></i> Self-assessment PDF</button>` : ""}<button class="btn sm" onclick="downloadResultsPDF()"><i class="ti ti-file-type-pdf"></i> Results PDF</button>${showBtn}`) +
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Lead reviewer's final summary <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
-    ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Still to be submitted: ${pending.join(" and ")}. You can keep writing and saving until you click “Show results”.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> All answers have been submitted. Read last year's objectives and the scores first; the Excel has all the answers together.</div>`) : ""}
+    ${canEdit && myOwnPending ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-pencil"></i><span style="flex:1;min-width:0">You have not submitted <b>your own review</b> of ${esc(p.first_name)} yet (you answer it as one more reviewer, in “My reviews”). It is better to do it before writing the summary, although it is not required.</span><button class="btn sm" onclick="go('form','${myLead.id}')">${myLead.status==='draft'?'Continue my review':'Write my review'}</button></div>` : ""}
+    ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Still to be submitted: ${pending.join(" and ")}. You can keep writing and saving until you click “Show results”.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> All the other answers have been submitted${myOwnPending ? " (yours is still missing)" : ""}. Read last year's objectives and the scores first; the Excel has all the answers together.</div>`) : ""}
     ${iAmLead && locked ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i> Results shown: the summary is locked. If something needs changing, ask the administrators, who can reopen it.</div>` : ""}
     ${shown && !locked ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-lock-open"></i> The administrators have reopened this summary. ${esc(p.first_name)} can still see their results: whatever you save will be visible straight away.</div>` : ""}
     ${objOnly ? `<div class="hint" style="margin-bottom:14px"><i class="ti ti-eye-off"></i> You were not ${esc(p.first_name)}'s lead reviewer in this cycle: you can see the scores and the objectives that were set, not the written summary.</div>` : ""}
     <div class="${locked ? 'fr-locked' : ''}">${resultsHTML(view, 'other', { fr, canEdit, objOnly })}</div>
     ${canEdit ? `<div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Last edited ${fmtDT(fr.updated_at)}`:""}</span>
-      <button class="btn pri" onclick="saveFinalReview()"><i class="ti ti-device-floppy"></i> Save answers</button></div>
+      <button class="btn pri" onclick="saveFinalReview()"><i class="ti ti-device-floppy"></i> Save summary</button></div>
     <div class="hint" style="margin-top:10px">${shown ? `<i class="ti ti-eye"></i> ${esc(p.first_name)} can already see this summary: whatever you save will be visible straight away.` : `<i class="ti ti-eye-off"></i> Save as often as you like, even once the cycle is closed. ${esc(p.first_name)} will not see anything until you click “Show results”; from then on the summary is locked.`}</div>` : ""}
     </div>
-    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${canSeeAll()?'partners':'team'}')">Back</button></div>`;
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${REVIEW_FROM && canSee(REVIEW_FROM) ? REVIEW_FROM : (canSeeAll()?'partners':'team')}')">Back</button></div>`;
 };
 AFTER.review = async function(){ drawResults(window.RES_VIEW); ajustarAltos(); };
 // El recuadro se estira hasta donde llegue el texto, en vez de hacer scroll dentro
@@ -1878,7 +1906,8 @@ async function buildCycleWorkbook(cycleId, revieweeId, opts){
     const list = byReviewee[p.id]; const per = {}; let allW = 0, allWs = 0, allS = 0, allN = 0, selfS = 0, selfN = 0; const reviewers = new Set();
     for(const a of list){ const by = ansOf(a); for(const qq of scaleQ){ const v = by[qq.code]; if(v == null || v === "") continue; const o = (per[qq.code] ||= { sum:0, n:0, wsum:0, w:0, self:null });
       if(a.role === 'self'){ o.self = Number(v); selfS += Number(v); selfN++; continue; }
-      const w = reviewWeight(p, a.reviewer, a.role, qq.code, cycleId); o.sum += Number(v); o.n++; o.wsum += Number(v) * w; o.w += w; allWs += Number(v) * w; allW += w; allS += Number(v); allN++; reviewers.add(a.reviewer_id); } }
+      const w = reviewWeight(p, a.reviewer, a.role, qq.code, cycleId); o.wsum += Number(v) * w; o.w += w; allWs += Number(v) * w; allW += w; reviewers.add(a.reviewer_id);
+      if(w > 0){ o.sum += Number(v); o.n++; allS += Number(v); allN++; } } }   // peso 0 (celda en blanco del Excel de pesos) = no cuenta tampoco en la media simple (Hugo, 09-nov-2026)
     stats[p.id] = { n:reviewers.size, per, W: allW ? allWs/allW : null, A: allN ? allS/allN : null, S: selfN ? selfS/selfN : null };
   }
   if(opts.summary !== false && scaleQ.length && (!revieweeId || people.length > 1)){
@@ -1927,7 +1956,7 @@ async function buildCycleWorkbook(cycleId, revieweeId, opts){
     else { const row = ws.getRow(r); row.getCell(1).value = "Self-assessment"; row.getCell(1).font = { bold:true }; row.getCell(2).value = "not submitted"; row.getCell(2).font = { size:9, color:{ argb:GREY } }; row.eachCell({ includeEmpty:true }, cell => { if(cell.col <= nCols){ cell.border = box; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; } }); for(let x = 1; x <= nCols; x++){ const cell = row.getCell(x); cell.border = box; cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:SOFT } }; } r++; }
     if(scaleQ.length){
       const means = [
-        ["Average", "every response counts the same", SOFT, false, code => { const o = st.per[code]; return o && o.n ? o.sum / o.n : null; }],
+        ["Average", "every response counts the same (responses with weight 0 do not count)", SOFT, false, code => { const o = st.per[code]; return o && o.n ? o.sum / o.n : null; }],
         ["Weighted average", "weights set for this cycle (Weight column of each person's sheet)", MID, true, code => { const o = st.per[code]; return o && o.w ? o.wsum / o.w : null; }],
       ];
       for(const [label, note, fill, bold, fn] of means){ const row = ws.getRow(r); row.getCell(1).value = label; row.getCell(1).font = { bold:true }; row.getCell(2).value = note; row.getCell(2).font = { size:9, color:{ argb:GREY } };
@@ -2081,7 +2110,7 @@ const TOURS = {
   ]},
   team: { page:"team", title:"Lead Reviewer", ic:"users", desc:"The people you are lead reviewer for: their progress and your final summary.", steps:[
     [() => tq("#content table"), "Your people", "Everyone you are lead reviewer for in this review, with how far each one has got. Your own review of each person is answered in " + _ui("My reviews") + ", like any other."],
-    [() => tq("#content button", "View all & summary"), "Their file", "Opens the same results the person will see, plus their self-assessment and all the answers. There you write your summary and click " + _ui("Save answers") + " as often as you like."],
+    [() => tq("#content button", "View all & summary"), "Their file", "Opens the same results the person will see, with buttons to download their self-assessment and an Excel with all the answers. There you write your summary and click " + _ui("Save summary") + " as often as you like."],
     [() => tq("#content button", "View 20"), "Previous year", () => "Their file for the previous year, even if their lead reviewer was someone else." + (ME.is_partner ? "" : " If you were not their lead that year, you see the scores and the objectives only.")],
     [() => tq("#content button", "Excel of my reviewees"), "Excel", "The answers of all the people you are lead reviewer for."],
     [() => tq("#content .hint"), "Show results", "When the summary is ready, click " + _ui("Show results") + " in the person's file: from then on they see it and your summary is locked. If something needs changing, ask an administrator."],
@@ -2221,11 +2250,11 @@ function personInfo(id){
 PAGES.audit = async function(){
   const { data, error } = await sb.from("audit_log").select("*").order("at", {ascending:false}).limit(300);
   if(error) throw error;
-  const ACTION = { mail_test:"Sent a test e-mail", mail_settings:"Changed the e-mail settings", submit:"Submitted a review", resubmit:"Resubmitted a corrected review", read_results:"Read their results", read_results_of:"Read another person's results", save_final_review:"Saved the final summary", send_final_review:"Sent the final summary", show_results:"Showed the results to the person", reopen_assignment:"Reopened a submitted answer", reopen_final_review:"Reopened a lead's summary", lock_final_review:"Locked a lead's summary again", choose_reviewers:"Chose their peers", release:"Published", import:"Imported" };
+  const ACTION = { mail_test:"Sent a test e-mail", mail_settings:"Changed the e-mail settings", submit:"Submitted a review", resubmit:"Resubmitted a corrected review", read_results:"Read their results", read_results_of:"Read another person's results", save_final_review:"Saved the final summary", send_final_review:"Saved the final summary (old flow)", show_results:"Showed the results to the person", reopen_assignment:"Reopened a submitted answer", reopen_final_review:"Reopened a lead's summary", lock_final_review:"Locked a lead's summary again", choose_reviewers:"Chose their peers", release:"Showed the results", import:"Imported" };
   return `<div class="card"><h3><i class="ti ti-shield-lock"></i> Log <span class="r">${data.length} entries (latest 300)</span></h3>
     <table><tr><th>When</th><th>Who</th><th>What</th><th>About whom</th><th>Cycle</th></tr>
     ${data.map(a => `<tr><td class="xs mut">${fmtDT(a.at)}</td><td class="sm">${esc(a.actor_email||"")}</td><td class="sm">${ACTION[a.action]||esc(a.action)} ${a.details&&a.details.role?`<span class="tag">${ROLE_LABEL[a.details.role]||a.details.role}</span>`:""}</td><td class="sm">${a.person_id?esc(fullName(person(a.person_id))):"—"}</td><td class="xs mut">${a.cycle_id?esc(enExport((byId(CYCLES,a.cycle_id)||{}).name||"")):""}</td></tr>`).join("")}</table>
-    ${!data.length?`<div class="empty"><div class="ic"><i class="ti ti-shield-lock"></i></div><div class="t">No activity yet</div><div class="d">Every submission, every reading of results and every publication will be logged here.</div></div>`:""}</div>`;
+    ${!data.length?`<div class="empty"><div class="ic"><i class="ti ti-shield-lock"></i></div><div class="t">No activity yet</div><div class="d">Every submission, every reading of results and every time results are shown will be logged here.</div></div>`:""}</div>`;
 };
 </script>
 <script>
@@ -2243,18 +2272,19 @@ const ADMIN = {
   async cycles(){
     const anyOpen = CYCLES.some(c=>c.status==="open"), anyPub = CYCLES.some(c=>c.status==="closed" || c.status==="published");
     const { data:asg } = CYCLES.length ? await sb.from("assignments").select("cycle_id").limit(1) : {data:[]};
+    const HAS_ASG = {}; await Promise.all(CYCLES.map(async c => { const { data } = await sb.from("assignments").select("id").eq("cycle_id", c.id).limit(1); HAS_ASG[c.id] = !!(data && data.length); }));
     const guide = `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-route"></i> How to launch a review <span class="r">four steps, always in this order</span></h3>
       <div class="steps4">
         <div class="step4 ${CYCLES.length?'done':''}"><div class="k">${CYCLES.length?'<i class="ti ti-check"></i>':'1'}</div><div class="t">Create the cycle</div><div class="d">Choose the template (December or June), the name and the dates.</div></div>
         <div class="step4 ${asg&&asg.length?'done':''}"><div class="k">${asg&&asg.length?'<i class="ti ti-check"></i>':'2'}</div><div class="t">Assign</div><div class="d">Who does a self-assessment, who is whose lead reviewer (from the CEO's file) and which peers give their view. In December there is an automatic proposal; in June each person chooses their peers.</div></div>
-        <div class="step4 ${anyOpen||anyPub?'done':''}"><div class="k">${anyOpen||anyPub?'<i class="ti ti-check"></i>':'3'}</div><div class="t">Open</div><div class="d">Change the status to “Open”: each person sees their reviews in “My reviews”.</div></div>
+        <div class="step4 ${anyOpen||anyPub?'done':''}"><div class="k">${anyOpen||anyPub?'<i class="ti ti-check"></i>':'3'}</div><div class="t">Open</div><div class="d">Change the status to “Open”: from then on each person can answer their reviews in “My reviews” (before that they only see them as “opens soon”).</div></div>
         <div class="step4 ${anyPub?'done':''}"><div class="k">${anyPub?'<i class="ti ti-check"></i>':'4'}</div><div class="t">Close</div><div class="d">Each lead reviewer writes their summary and clicks “Show results” on each person's file. When everything is done, change the status to “Closed”. Closing does not show anything by itself.</div></div>
       </div></div>`;
     return guide + `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editCycle(null)"><i class="ti ti-plus"></i> New cycle</button></div>
     ${CYCLES.length ? `<div class="card"><table><tr><th>Cycle</th><th>Type</th><th>Dates</th><th>Status</th><th>Progress</th><th>What the reviewee sees</th><th></th></tr>
       ${CYCLES.map(c => { const v = c.visibility||{}; return `<tr><td class="b">${esc(cname(c, false))}<div class="xs mut">${esc(enExport(c.name))}</div></td><td><span class="pill pur">${c.kind==='cascade'?'Cascade (June)':'360 (December)'}</span></td><td class="xs">${fmtD(c.opens_at)} → ${fmtD(c.closes_at)}</td>
         <td><select class="inp" style="width:auto;padding:4px 6px;font-size:12px" onchange="setCycleStatus('${c.id}',this.value)">${Object.entries(CYCLE_STATUS).filter(([k]) => k !== 'published' || c.status === 'published').map(([k,l])=>`<option value="${k}" ${c.status===k?"selected":""}>${l}</option>`).join("")}</select></td>
-        <td><span class="flow" title="Created · Assigned · Open · Closed"><i class="on"></i><i class="${(c.cycle_forms||[]).length?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${['closed','published'].includes(c.status)?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">no forms</div>'}</td>
+        <td><span class="flow" title="Created · Assigned · Open · Closed"><i class="on"></i><i class="${HAS_ASG[c.id]?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${['closed','published'].includes(c.status)?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">no forms</div>'}</td>
         <td class="xs">Their lead reviewer's final summary${c.kind==='360'?" and their charts (averages, no names)":""}, once the lead clicks “Show results”</td>
         <td style="text-align:right;white-space:nowrap"><button class="btn sm" onclick="editCycle('${c.id}')">Edit</button> <button class="btn sm" onclick="ADM.tab='assign';ADM.cycle='${c.id}';render()">Assignments</button></td></tr>`; }).join("")}</table></div>`
      : `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-calendar-plus"></i></div><div class="t">There are no cycles yet</div><div class="d">Start with “New cycle”: with the December or June template it is set up in a minute.</div><button class="btn pri" style="margin-top:14px" onclick="editCycle(null)"><i class="ti ti-plus"></i> New cycle</button></div></div>`}`;
@@ -2343,7 +2373,7 @@ const ADMIN = {
 };
 
 /* ----- Correos de aviso (SQL 11 + Edge Function enviar-correos) ----- */
-const MAIL_KIND = { cycle_open:"Starts today", opens_today:"Starts today", reminder:"Reminder", closes_today:"Closes today", cycle_closed:"Closed", results_ready:"Results published", test:"Test" };
+const MAIL_KIND = { cycle_open:"Starts today", opens_today:"Starts today", reminder:"Reminder", closes_today:"Closes today", cycle_closed:"Closed", results_ready:"Results shown", test:"Test" };
 // tipo de aviso en pantalla; «reminder_7» = recordatorio a 7 días del cierre
 const mailKind = k => MAIL_KIND[k] || (/^reminder_(\d+)$/.test(k || "") ? `Reminder · ${k.split("_")[1]} days left` : k);
 async function mailSave(){
@@ -2534,9 +2564,24 @@ async function saveCycle(id){
 }
 async function delCycle(id){
   const c = byId(CYCLES,id);
-  openModal(`<h2>Delete “${esc(cname(c, false))}”?</h2><p class="sm">All its assignments and answers will be deleted too. This cannot be undone.</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--bad);color:#fff;border-color:var(--bad)" onclick="closeModal();(async()=>{const {error}=await sb.from('cycles').delete().eq('id','${id}'); if(error) err(error,'Could not delete'); else { toast('Cycle deleted'); ADM.cycle=null; await loadCatalog(); render(); }})()">Delete</button></div>`);
+  const closed = ["closed", "published"].includes(c.status);
+  openModal(`<h2>Delete “${esc(cname(c, false))}”?</h2><p class="sm">Everything in this cycle will be deleted for good: <b>all its assignments and answers, the lead reviewers' final summaries, the record of whose results were shown, the frozen snapshot and its weights</b>. This cannot be undone.</p>${closed ? `<div class="alert warn" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i><span>This cycle is <b>closed</b>: it holds real, historic reviews. Make a backup of the database first.</span></div>` : ""}<div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--bad);color:#fff;border-color:var(--bad)" onclick="closeModal();(async()=>{const {error}=await sb.from('cycles').delete().eq('id','${id}'); if(error) err(error,'Could not delete'); else { toast('Cycle deleted'); ADM.cycle=null; await loadCatalog(); render(); }})()">Delete for good</button></div>`);
 }
-async function setCycleStatus(id, status){
+function setCycleStatus(id, status){
+  const c = byId(CYCLES, id); if(!c || c.status === status) return;
+  const closedNow = ["closed", "published"].includes(c.status), name = esc(cname(c, false));
+  let title, body, btn, danger = false;
+  if(closedNow && ["open", "draft"].includes(status)){
+    title = `Reopen a closed cycle?`; danger = true; btn = "Yes, reopen it";
+    body = `<b>${name}</b> is closed. Reopening it lets people edit and submit answers again, so results that may already have been shown could change. Do it only if you really need to.`;
+  } else if(status === "open"){ title = `Open ${name}?`; btn = "Open the cycle"; body = "Everyone with an assignment in this cycle will be able to answer it in “My reviews”."; }
+  else if(status === "closed"){ title = `Close ${name}?`; btn = "Close the cycle"; body = "Nobody will be able to answer or submit any more, and the weights, teams and positions of this cycle are frozen. Lead reviewers can still write their summaries and show results."; }
+  else { title = `Move ${name} back to draft?`; btn = "Back to draft"; body = "People will see it as “opens soon” and will not be able to answer until it is opened again."; }
+  window.STATUS_CHANGE = { id, status };
+  openModal(`<h2>${title}</h2><p class="sm">${body}</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal();render()">Cancel</button><button class="btn ${danger ? "" : "pri"}" ${danger ? 'style="background:var(--bad);color:#fff;border-color:var(--bad)"' : ""} onclick="doSetCycleStatus()">${btn}</button></div>`);
+}
+async function doSetCycleStatus(){
+  const { id, status } = window.STATUS_CHANGE || {}; closeModal(); if(!id) return;
   const { error } = await sb.from("cycles").update({status}).eq("id", id); if(error) return err(error,"Status");
   toast("Status: " + CYCLE_STATUS[status]); await loadCatalog(); render();
 }
@@ -2559,9 +2604,38 @@ async function addAssign(cycleId, revieweeId, reviewerId, role){
   if(error) return err(error,"Could not assign"); render();
 }
 async function delAssign(id){ const { error } = await sb.from("assignments").delete().eq("id", id); if(error) return err(error,"Could not remove"); render(); }
-async function setLead(cycleId, revieweeId, reviewerId, currentId){
+async function setLead(cycleId, revieweeId, reviewerId, currentId, decided){
+  if(currentId && !decided){
+    // Hugo (09-nov-2026): si el lead actual ya ha empezado o enviado su review, antes de cambiarlo se pregunta qué hacer con ella
+    let cur = (window.ASG_CACHE||[]).find(a => a.id === currentId);
+    if(!cur){ const { data } = await sb.from("assignments").select("id,status,reviewer_id").eq("id", currentId).limit(1); cur = data && data[0]; }
+    if(cur && cur.status !== "pending"){
+      const old = person(cur.reviewer_id), rv = person(revieweeId), nu = reviewerId ? person(reviewerId) : null;
+      const { data:dup } = await sb.from("assignments").select("id").eq("cycle_id", cycleId).eq("reviewee_id", revieweeId).eq("reviewer_id", cur.reviewer_id).eq("role", "peer").limit(1);
+      const canKeep = !(dup && dup.length);
+      window.LEAD_CHANGE = { cycleId, revieweeId, reviewerId, currentId };
+      openModal(`<h2>Change ${esc(rv.first_name)}'s lead reviewer?</h2>
+        <p class="sm">${esc(fullName(old))} has already ${cur.status === "submitted" ? "<b>submitted</b>" : "<b>started</b>"} their review of ${esc(fullName(rv))}${nu ? `, and the new lead reviewer will be <b>${esc(fullName(nu))}</b>` : ""}. What should happen to ${esc(old.first_name)}'s review?</p>
+        <div class="opts" style="margin:12px 0">
+          ${canKeep ? `<label class="opt on" style="cursor:pointer" onclick="leadChangeDo('keep')"><div class="ot"><i class="ti ti-archive"></i>Keep it as a peer review</div><div class="od">All its answers stay in the database and it counts as one more peer's opinion of ${esc(rv.first_name)}. ${esc(old.first_name)} stops being the lead reviewer.</div></label>` : `<div class="alert warn"><i class="ti ti-info-circle"></i><span>${esc(old.first_name)} already has a peer review of ${esc(rv.first_name)}, so this one cannot be kept as a second peer review.</span></div>`}
+          <label class="opt" style="cursor:pointer;border-color:var(--bad)" onclick="leadChangeDo('delete')"><div class="ot" style="color:var(--bad)"><i class="ti ti-trash"></i>Delete it</div><div class="od">The review and all its answers are deleted for good. This cannot be undone.</div></label>
+        </div>
+        <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal();render()">Cancel</button></div>`);
+      return;
+    }
+  }
   if(currentId){ const { error } = await sb.from("assignments").delete().eq("id", currentId); if(error) return err(error,"Lead"); }
   if(reviewerId) await addAssign(cycleId, revieweeId, reviewerId, "lead"); else render();
+}
+async function leadChangeDo(what){
+  const x = window.LEAD_CHANGE; if(!x) return; closeModal(); window.LEAD_CHANGE = null;
+  if(what === "keep"){
+    const { error } = await sb.from("assignments").update({ role:"peer" }).eq("id", x.currentId); if(error) return err(error, "Lead");
+    toast("The previous lead's review is kept as a peer review");
+    if(x.reviewerId) await addAssign(x.cycleId, x.revieweeId, x.reviewerId, "lead"); else render();
+    return;
+  }
+  return setLead(x.cycleId, x.revieweeId, x.reviewerId, x.currentId, true);
 }
 function pickPeers(cycleId, revieweeId){
   const rv = person(revieweeId);
@@ -2671,15 +2745,16 @@ function moreActions(btn, cycleId){
   m.innerHTML = `<div class="sm-list">
     <div class="sm-item" onclick="closeSelMenu();prefillSelf('${cycleId}')"><i class="ti ti-user"></i> Add only the self-assessments</div>
     <div class="sm-item" onclick="closeSelMenu();exportAssign('${cycleId}')"><i class="ti ti-download"></i> Export assignments to Excel</div>
-    <div class="sm-item" onclick="closeSelMenu();reopenPicker('${cycleId}')"><i class="ti ti-lock-open"></i> Reopen a submitted answer…</div>
+    ${(byId(CYCLES, cycleId) || {}).status === "open" ? `<div class="sm-item" onclick="closeSelMenu();reopenPicker('${cycleId}')"><i class="ti ti-lock-open"></i> Reopen a submitted answer…</div>` : ""}
     <div class="sm-item" onclick="closeSelMenu();summaryLockPicker('${cycleId}')"><i class="ti ti-lock-open-2"></i> Reopen a lead's summary…</div>
-    <div class="sm-item" style="color:var(--bad)" onclick="closeSelMenu();clearPending('${cycleId}')"><i class="ti ti-eraser" style="color:var(--bad)"></i> Remove assignments not started</div></div>`;
+    ${["draft", "open"].includes((byId(CYCLES, cycleId) || {}).status) ? `<div class="sm-item" style="color:var(--bad)" onclick="closeSelMenu();clearPending('${cycleId}')"><i class="ti ti-eraser" style="color:var(--bad)"></i> Remove assignments not started</div>` : ""}</div>`;
   document.body.appendChild(m);
   const r = uiRect(btn); m.style.width = "300px"; m.style.left = Math.min(r.right - 300, uiVW() - 308) + "px"; m.style.top = (r.bottom + 6) + "px";
   requestAnimationFrame(() => m.classList.add("show")); SELMENU = m; SELOPEN = null;
 }
 // Reabrir una respuesta ya enviada para que la persona la corrija (Hugo, 07-sep-2026): el admin elige a quién y cuál
 function reopenPicker(cycleId, who){
+  if((byId(CYCLES, cycleId) || {}).status !== "open") return toast("Answers can only be reopened while the cycle is open", true);
   const as = (window.ASG_CACHE||[]).filter(a => a.cycle_id===cycleId && a.status==='submitted');
   if(!as.length) return toast("There are no submitted answers in this cycle");
   const byReviewer = {}; for(const a of as) (byReviewer[a.reviewer_id] ||= []).push(a);
@@ -2744,10 +2819,11 @@ async function savePeers(){
 }
 // Deshacer: quitar todas las asignaciones aún no empezadas
 async function clearPending(cycleId){
+  if(!["draft", "open"].includes((byId(CYCLES, cycleId) || {}).status)) return toast("Only in draft or open cycles: in a closed cycle, an unanswered assignment is part of its history", true);
   const { data } = await sb.from("assignments").select("id").eq("cycle_id", cycleId).eq("status","pending");
   const n = (data||[]).length; if(!n) return toast("There are no pending assignments to remove");
   window.CLEAR_CYCLE = cycleId;
-  openModal(`<h2>Remove pending assignments</h2><p class="sm">This will remove <b>${n}</b> assignments that nobody has started yet. Those in draft or submitted are not touched.</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--bad);color:#fff;border-color:var(--bad)" onclick="doClearPending()">Remove</button></div>`);
+  openModal(`<h2>Remove pending assignments</h2><p class="sm">This will remove <b>${n}</b> assignments that nobody has started yet: self-assessments, peer reviews and lead reviews. Those in draft or submitted are not touched.</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--bad);color:#fff;border-color:var(--bad)" onclick="doClearPending()">Remove</button></div>`);
 }
 async function doClearPending(){
   closeModal(); progress(true);
@@ -3169,7 +3245,7 @@ async function editPerson(id){
     <div><label class="xs mut">E-mail (Microsoft login)</label><input type="text" id="p_em" value="${esc(p.email||"")}"></div><div><label class="xs mut">Position</label><input type="text" id="p_pos" value="${esc(p.position||"")}"></div>
     <div><label class="xs mut">Team</label><select class="inp" id="p_team"><option value="">—</option>${Object.entries(TEAM_LABEL).map(([k,l])=>`<option value="${k}" ${p.team===k?"selected":""}>${l}</option>`).join("")}</select></div><div><label class="xs mut">Start date</label>${dateField("p_sd", p.start_date)}</div></div>
    <div class="two"><div><label class="xs mut">Leaving date <span class="xs mut">(once set, the person becomes inactive and is left out of later cycles)</span></label>${dateField("p_ed", p.end_date)}</div><div></div></div>
-   <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Partner <span class="xs mut">(label; partners weigh 2 in the weighted average)</span></label></div>
+   <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Partner <span class="xs mut">(firm role: shown as a label and gives partner access, e.g. the PDF with all summaries; how much their opinion weighs depends on the cycle's weighting)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Sees all the firm's reviews <span class="xs mut">(All reviews)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Is evaluated <span class="xs mut">(included as a reviewee in the cycles)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin <span class="xs mut">(cycles, assignments and people)</span></label></div>
