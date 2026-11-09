@@ -927,6 +927,11 @@ async function refreshLeadCache(){
 /* ---------- MIS TAREAS ---------- */
 let PICKED = {};
 // Los avisos (hoy empieza, quedan X días, hoy cierra, cerrado, ya puedes ver tus resultados) van por CORREO, no dentro de la app (Hugo, 07-sep-2026). Ver 3 - Base de datos/11_avisos_correo.sql y edge/avisos.
+// Desplegable de ciclo (Hugo, 09-nov-2026): en My reviews y en Lead Reviewer se ve un ciclo cada vez, como en All reviews.
+// Por defecto, el abierto; si no hay ninguno, el más reciente.
+let TASK_CYCLE = null, TEAM_CYCLE = null;
+const cyclePicker = (list, sel, varName) => `<div class="row" style="margin-bottom:14px"><select class="inp" style="width:auto" onchange="${varName}=this.value;render()">${list.map(x => `<option value="${x.id}" ${x.id === sel.id ? "selected" : ""}>${esc(cname(x))}</option>`).join("")}</select></div>`;
+const pickCycle = (list, wanted) => list.find(x => x.id === wanted) || list.find(x => x.status === "open") || list[0] || null;
 PAGES.tasks = async function(){
   const all = await myAssignments(); await refreshLeadCache();
   PICKED = {}; { const { data:pk } = await sb.from("assignments").select("cycle_id").eq("reviewee_id", ME.id).in("role", ["peer","lead"]); for(const x of (pk||[])) PICKED[x.cycle_id] = true; }
@@ -939,7 +944,8 @@ PAGES.tasks = async function(){
   // (Hugo, 10-sep-2026: son muchas reviews y el listado entero del año anterior sobraba). Junio (cascada) se lista entero: cambian las personas.
   const decs = CYCLES.filter(c => byCycle[c.id] && c.kind === '360').sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""));
   const cyclesSorted = CYCLES.filter(c => byCycle[c.id] && (c.kind !== '360' || c.id === (decs[0]||{}).id));
-  VIEW_CYCLE = cyclesSorted[0] || null;
+  const selC = pickCycle(cyclesSorted, TASK_CYCLE); if(selC) TASK_CYCLE = selC.id;
+  VIEW_CYCLE = selC;
   const prevDecOf = c => CYCLES.filter(x => x.kind === '360' && x.id !== c.id && (x.opens_at||"") < (c.opens_at||"")).sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""))[0] || null;
   return `
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hello, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div>
@@ -949,7 +955,7 @@ PAGES.tasks = async function(){
     <div class="card kpi"><span class="v">${open.filter(a=>a.status==="submitted").length}</span><span class="l">Submitted reviews</span><span class="d">in open cycles</span></div>
     <div class="card kpi"><span class="v">${CYCLES.filter(c=>c.status==="open").length}</span><span class="l">Open cycles</span><span class="d">${CYCLES.filter(c=>c.status==="open").map(c=>esc(cname(c, false))).join(", ")||"none right now"}</span></div>
   </div>
-  ${cyclesSorted.length ? cyclesSorted.map(c => {
+  ${cyclesSorted.length ? cyclePicker(cyclesSorted, selC, "TASK_CYCLE") + [selC].map(c => {
     const list = byCycle[c.id];
     const prevC = c.kind === '360' ? prevDecOf(c) : null, prevList = prevC ? (byCycle[prevC.id] || []) : [], prevYear = prevC ? (prevC.opens_at || "").slice(0, 4) : "";
     const prevOf = a => prevList.find(x => x.reviewee_id === a.reviewee_id && x.role === a.role && x.status === 'submitted') || prevList.find(x => x.reviewee_id === a.reviewee_id && x.status === 'submitted') || null;
@@ -1102,7 +1108,7 @@ async function submitCurrent(){
   const missing = [];
   for(const g of groups) for(const q of g.questions){ const a = CUR.answers[q.id]; if(isRequired(q, null, g.section) && (!a || (a.value_num==null && !(a.value_text||"").trim()))) missing.push(q.text); }
   if(missing.length){ openModal(`<h2>Required answers missing</h2><ul class="sm">${missing.map(m=>`<li>${esc(m)}</li>`).join("")}</ul><div style="text-align:right"><button class="btn pri" onclick="closeModal()">Back to the form</button></div>`); return; }
-  openModal(`<h2>Submit your answer?</h2><p class="sm"><b>Once submitted you will not be able to edit it again.</b> If there is a mistake, the administrators can reopen it. ${CUR.a.role==='peer'?"No other peer and not the person being reviewed will see your answer; only their lead reviewer and the partners with access to all reviews.":CUR.a.role==='lead'?"Afterwards you will be able to read the peers' answers and write the final summary.":"Your lead reviewer will read it when writing your final summary."}</p>
+  openModal(`<h2>Submit your answer?</h2><p class="sm"><b>Once submitted you will not be able to edit it again.</b> If there is a mistake, the administrators can reopen it. ${CUR.a.role==='peer'?"No other peer and not the person being reviewed will see your answer; only their lead reviewer and the partners with access to all reviews.":CUR.a.role==='lead'?(((byId(CYCLES, CUR.a.cycle_id) || {}).kind === 'cascade') ? "Afterwards you will be able to read the peers' answers and write the final summary." : "Your answer counts as one more review; the final summary is written separately, in Lead Reviewer."):"Your lead reviewer will read it when writing your final summary."}</p>
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="doSubmit()"><i class="ti ti-send"></i> Submit</button></div>`);
 }
 async function doSubmit(){
@@ -1323,8 +1329,8 @@ function chartImage(config, wPx, hPx){
 const radarPdfConfig = (labels, W, A, S, aLabel) => { const ds = [ rds("Weighted average", W, "#0e9aab") ]; if(A) ds.push(rds(SERIE_EN[aLabel] || aLabel, A, "#0e2150")); if(S && S.some(v => v != null)) ds.push({ ...rds("Self-assessment", S, "#e8862e", true), pointStyle:"rectRot", pointRadius:3 });
   return { type:"radar", data:{ labels, datasets:ds }, options:{ layout:{ padding:{ top:8, bottom:2, left:10, right:10 } }, scales:{ r:{ min:0, max:5, ticks:{ stepSize:1, backdropColor:"transparent", font:{ size:10 }, color:"#8a94a6" }, grid:{ color:"#e7e9ee" }, angleLines:{ color:"#e7e9ee" }, pointLabels:{ padding:6, font:{ size:11, weight:"600" }, color:"#2b3240" } } },
     plugins:{ legend:{ position:"bottom", labels:{ boxWidth:8, boxHeight:8, usePointStyle:true, padding:14, font:{ size:10 } } }, tooltip:{ enabled:false } } } }; };
-const barsPdfConfig = (cur, prv, selfScore) => { const datasets = []; if(prv) datasets.push({ label:"previous", data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
-  datasets.push({ label:"actual", data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
+const barsPdfConfig = (cur, prv, selfScore, totCur, totPrev) => { const datasets = []; if(prv) datasets.push({ label:"previous", data:prv, _tot:totPrev, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
+  datasets.push({ label:"actual", data:cur, _tot:totCur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:2, maxBarThickness:20, categoryPercentage:0.7, barPercentage:0.9 });
   const selfIdx = selfScore ? Math.round(selfScore) - 1 : -1;
   return { type:"bar", data:{ labels:["1","2","3","4","5"], datasets }, plugins:[PCT_PLUGIN, SELF_PLUGIN], options:{ _self:selfScore, layout:{ padding:{ bottom:2, top:8 } }, plugins:{ legend:{ display:false }, tooltip:{ enabled:false } },
     scales:{ x:{ grid:{ display:false }, ticks:{ font: t => ({ size:11, weight: t.index === selfIdx ? "700" : "400" }), color: t => t.index === selfIdx ? "#d64545" : "#5c6675", padding:3 } }, y:{ beginAtZero:true, grace:"25%", ticks:{ precision:0, font:{ size:9 }, color:"#8a94a6" }, grid:{ color:"#eef0f3" } } } } }; };
@@ -1386,7 +1392,7 @@ async function buildResultsPdf(view, into){
         codes.forEach((k, j) => { const col = j % cols; if(col === 0) pdf.ensure(cellH); const x = pdf.x + col * (cw + g2); const y0 = pdf.y;
           pdf.font("bold", 7.5); pdf.color(PDFK.ink); pdf.d.text(pdf.d.splitTextToSize(pdfTxt(lab(k)), cw)[0], x, y0 + 2.8);
           pdf.font("normal", 6.5); pdf.color(PDFK.grey); pdf.d.text(pdfTxt(distSub(st[k], cur.band, k, hasPrev ? ps[k] : null)), x, y0 + 6);
-          pdf.image(chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self), 420, 280), x, y0 + capH, cw, chH);
+          pdf.image(chartImage(barsPdfConfig(st[k].hist || [0,0,0,0,0], hasPrev && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, st[k].self, st._n, hasPrev ? ps._n : null), 420, 280), x, y0 + capH, cw, chH);
           if(col === cols - 1 || j === codes.length - 1) pdf.y += cellH; });
         pdf.y += 2;
       } else {
@@ -1594,7 +1600,7 @@ function radar3(canvasId, labels, W, A, S, aLabel){
 const PCT_PLUGIN = { id:"pct", afterDatasetsDraw(ch){
   const ctx = ch.ctx; ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "bottom";
   const metas = ch.data.datasets.map((d, i) => ch.getDatasetMeta(i));
-  ch.data.datasets.forEach((ds, di) => { const meta = metas[di]; if(meta.hidden) return; const tot = ds.data.reduce((x, y) => x + (y||0), 0) || 1;
+  ch.data.datasets.forEach((ds, di) => { const meta = metas[di]; if(meta.hidden) return; const tot = ds._tot || ds.data.reduce((x, y) => x + (y||0), 0) || 1;
     meta.data.forEach((el, i) => { const v = ds.data[i]; if(!v) return; const w = el.width || 26; const size = w < 22 ? 8.5 : 10;
       ctx.font = `600 ${size}px Inter, system-ui, sans-serif`;
       // si la barra vecina (el otro año) tiene casi la misma altura y están muy juntas, la etiqueta del año anterior sube un escalón para no pisarse
@@ -1608,12 +1614,13 @@ const SELF_PLUGIN = { id:"selfmark", afterDraw(ch){
   const tr = li && ((li.options && li.options.translation) || li.translation);  // Chart.js dibuja la etiqueta en translation + textOffset, centrada en vertical
   const py = tr ? tr[1] + (li.textOffset || 0) : x.top + 20;
   const ctx = ch.ctx; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.strokeStyle = "#d64545"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore(); } };
-function bars2(canvasId, cur, prv, labelCur, labelPrev, selfScore){
+// % de cada barra = personas que dieron esa nota / personas que respondieron ese año (Hugo, 09-nov-2026). Sin pesos: eso es de las arañas.
+function bars2(canvasId, cur, prv, labelCur, labelPrev, selfScore, totCur, totPrev){
   const ctx = document.getElementById(canvasId); if(!ctx || !window.Chart) return;
   const datasets = [];
-  if(prv) datasets.push({ label:labelPrev, data:prv, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:4, maxBarThickness:26, categoryPercentage:0.7, barPercentage:0.9 });
-  datasets.push({ label:labelCur, data:cur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:4, maxBarThickness:26, categoryPercentage:0.7, barPercentage:0.9 });
-  const pct = (ds, v) => { const tot = ds.data.reduce((x, y) => x + (y||0), 0) || 1; return Math.round(v / tot * 100); };
+  if(prv) datasets.push({ label:labelPrev, data:prv, _tot:totPrev, backgroundColor:"#a9cdf4", _lblColor:"#5b7fae", borderRadius:4, maxBarThickness:26, categoryPercentage:0.7, barPercentage:0.9 });
+  datasets.push({ label:labelCur, data:cur, _tot:totCur, backgroundColor:"#0e2150", _lblColor:"#0e2150", borderRadius:4, maxBarThickness:26, categoryPercentage:0.7, barPercentage:0.9 });
+  const pct = (ds, v) => { const tot = ds._tot || ds.data.reduce((x, y) => x + (y||0), 0) || 1; return Math.round(v / tot * 100); };
   const showIdx = (ch, idx, evt) => { const act = ch.data.datasets.map((d, i) => ({ datasetIndex:i, index:idx })); ch.setActiveElements(act); ch.tooltip.setActiveElements(act, { x:evt.x, y:evt.y }); ch.update("none"); };
   const clear = ch => { ch.setActiveElements([]); ch.tooltip.setActiveElements([], {x:0,y:0}); ch.update("none"); };
   const selfIdx = selfScore ? Math.round(selfScore) - 1 : -1;
@@ -1676,7 +1683,7 @@ function drawResults(view){
   const ps = view.prev ? scaleStats(view.prev.rows) : null;
   if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); const pa = bandSeries(view.prev.band, ps, pc);
     radar3("rad_prev", pc.map(lab), pc.map(k => ps[k].w ? +(ps[k].wsum/ps[k].w).toFixed(2) : null), pa.data, pc.map(k => ps[k].self), pa.label); }
-  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, enExport(view.cur.c.period_label) || "This year", view.prev ? (enExport(view.prev.c.period_label) || "Previous year") : "", st[k].self));
+  codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, enExport(view.cur.c.period_label) || "This year", view.prev ? (enExport(view.prev.c.period_label) || "Previous year") : "", st[k].self, st._n, ps ? ps._n : null));
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
 
@@ -1690,8 +1697,10 @@ PAGES.team = async function(){
   const { data:rels } = await sb.from("releases").select("*").in("cycle_id", Object.keys(byCycle));
   let html = "";
   // ciclos del más reciente al más antiguo (diciembre 202x, junio 202x, diciembre 202x-1…), como CYCLES (Hugo, 10-sep-2026)
-  VIEW_CYCLE = CYCLES.find(c => byCycle[c.id]) || null;
-  for(const cid of CYCLES.filter(c => byCycle[c.id]).map(c => c.id)){
+  const leadCycles = CYCLES.filter(c => byCycle[c.id]);
+  const selT = pickCycle(leadCycles, TEAM_CYCLE); TEAM_CYCLE = selT.id; VIEW_CYCLE = selT;
+  html += cyclePicker(leadCycles, selT, "TEAM_CYCLE");
+  for(const cid of [selT.id]){
     const c = byId(CYCLES, cid); const { data:prog } = await sb.rpc("cycle_progress", { p_cycle: cid });
     const prevDec = CYCLES.filter(x => x.kind === '360' && x.id !== cid && (x.opens_at||"") < (c.opens_at||"")).sort((x, y) => (y.opens_at||"").localeCompare(x.opens_at||""))[0] || null;
     const prevYear = prevDec ? (prevDec.opens_at || "").slice(0, 4) : "";
@@ -2001,7 +2010,7 @@ async function exportCycleZip(cycleId){
     const selfs = as.filter(a => a.role === 'self' && a.status === 'submitted');
     const { data:ans } = selfs.length ? await sb.from("answers").select("*").in("assignment_id", selfs.map(a => a.id)) : { data:[] };
     const zip = new JSZip(); const root = zip.folder(zipSafe(c.name));
-    let files = 0;
+    let files = 0, folders = 0;
     for(let i = 0; i < people.length; i++){
       if(ZIP_CANCEL) return toast("Download cancelled");
       const p = people[i]; state(`${i + 1} of ${people.length} · ${fullName(p)}`); await pause();
@@ -2022,14 +2031,14 @@ async function exportCycleZip(cycleId){
         const { pdf, filename } = await buildResultsPdf(view); items.push([filename, pdf.blob()]);
       }
       if(!items.length) continue;   // sin nada enviado: no se crea la carpeta
-      const folder = root.folder(zipSafe(fullName(p)));
+      const folder = root.folder(zipSafe(fullName(p))); folders++;
       for(const [name, data] of items){ folder.file(zipSafe(name), data); files++; }
     }
     if(!files){ closeModal(); return toast("There is nothing submitted to download"); }
     state("Compressing…"); await pause();
     const blob = await zip.generateAsync({ type:"blob", compression:"STORE" });   // los PDF y los xlsx ya van comprimidos
     const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = zipSafe(`Abac RRHH - ${enExport(c.name)} - responses.zip`); el.click(); setTimeout(() => URL.revokeObjectURL(u), 8000);
-    closeModal(); toast(`ZIP downloaded: ${people.length} people, ${files} files`);
+    closeModal(); toast(`ZIP downloaded: ${folders} people, ${files} files`);
   }catch(e){ closeModal(); err(e, "Could not prepare the ZIP"); }
 }
 
@@ -2050,7 +2059,14 @@ function showResults(){
   const { c, p } = window.REV_CTX;
   if(!window.REV_FR || !((window.REV_FR.summary || "").trim())) return toast("Write and save the Reviewer Summary first", true);
   openModal(`<h2>Show the results to ${esc(p.first_name)}?</h2><p class="sm">${esc(fullName(p))} will see your final summary and their charts in “My results”, and will be notified that they can now see them. This cannot be undone.</p>
-    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="closeModal();(async()=>{ const { error } = await sb.rpc('show_results', { p_cycle:'${c.id}', p_reviewee:'${p.id}' }); if(error) err(error,'Could not show the results'); else { toast('Results shown to ${esc(p.first_name)}'); render(); } })()"><i class="ti ti-eye"></i> Show results</button></div>`);
+    <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="doShowResults()"><i class="ti ti-eye"></i> Show results</button></div>`);
+}
+
+async function doShowResults(){
+  const { c, p } = window.REV_CTX; closeModal();
+  const { error } = await sb.rpc("show_results", { p_cycle:c.id, p_reviewee:p.id });
+  if(error) return err(error, "Could not show the results");
+  toast(`Results shown to ${p.first_name}`); render();
 }
 
 /* ---------- TODAS LAS EVALUACIONES (socios y admin) ---------- */
@@ -2540,7 +2556,7 @@ function editCycle(id){
    <h3 style="margin-top:16px">3 · Other rules</h3>
    ${sw("v_lead", v.reviewee_sees_lead!==false, "The person will also see their lead reviewer's review")}
    ${sw("v_lap", !!v.lead_after_peers, "The lead reviewer closes last", "They cannot submit their review until all the peers have submitted theirs.")}
-   ${sw("v_picks", !!v.reviewee_picks, "Each person chooses their reviewers", "As in the June Mid Term Feedback: the person chooses 2-3 peers and their lead reviewer from their self-assessment. If off, the administrators assign them.")}
+   ${sw("v_picks", !!v.reviewee_picks, "Each person chooses their reviewers", "As in the June Mid Term Feedback: the person chooses 2-3 peers from their self-assessment (the lead reviewer is always assigned by the administrators). If off, the administrators assign the peers too.")}
    </details>
    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px">${id?`<button class="btn" style="color:var(--bad)" onclick="delCycle('${id}')">Delete cycle</button><span style="flex:1"></span>`:""}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="saveCycle(${id?`'${id}'`:"null"})">Save</button></div>`);
   const m = document.getElementById("modal");
@@ -2689,11 +2705,16 @@ async function prefill360(cycleId){
     for(const r of reviewers){ if(esLead(rv.id, r.id)) continue; const pf = roleForm(c,"peer",rv,r); if(pf) rows.push({cycle_id:cycleId, reviewee_id:rv.id, reviewer_id:r.id, role:"peer", form_id:pf}); }
   }
   if(!rows.length) return toast("The cycle is missing forms", true);
+  // solo las que no existen ya (Hugo, 09-nov-2026: si se pulsa dos veces, no decir que «crea» lo que ya estaba)
+  { const { data:ya } = await sb.from("assignments").select("reviewee_id,reviewer_id,role").eq("cycle_id", cycleId);
+    const k = r => r.reviewee_id + "|" + r.reviewer_id + "|" + r.role; const hay = new Set((ya || []).map(k));
+    for(let i = rows.length - 1; i >= 0; i--) if(hay.has(k(rows[i]))) rows.splice(i, 1); }
+  if(!rows.length) return toast("Nothing to add: every assignment of the December rule already exists in this cycle");
   window.PENDING_ROWS = rows;
   const nSelf = rows.filter(r=>r.role==='self').length, nPeer = rows.length - nSelf;
   openModal(`<h2>Fill with the December rule</h2>
     <p class="sm">This will create <b>${nSelf}</b> self-assessments and <b>${nPeer}</b> peer reviews:</p>
-    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>Each <b>Deal Team</b> member is reviewed by the Deal Team and Operations.</li><li>Each <b>Operations</b> member is reviewed by everyone: Deal Team, Operations and Nest.</li><li>The <b>equity partners</b> review everyone, Nest included; nobody reviews them.</li><li>The <b>Nest partner</b> who is evaluated is reviewed by everyone, and reviews everyone.</li><li>Each <b>Nest</b> member is reviewed by the rest of Nest and Operations.</li><li>Only people marked “is evaluated” under People are included as reviewees (partners are not, unless indicated). The lead reviewer is assigned separately (“Lead reviewer by team” or one by one).</li></ul>
+    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>Each <b>Deal Team</b> member is reviewed by the Deal Team and Operations.</li><li>Each <b>Operations</b> member is reviewed by everyone: Deal Team, Operations and Nest.</li><li>The <b>equity partners</b> review everyone, Nest included; nobody reviews them.</li><li>The <b>Nest partner</b> who is evaluated is reviewed by everyone, and reviews everyone.</li><li>Each <b>Nest</b> member is reviewed by the rest of Nest and Operations.</li><li>Only people marked “is evaluated” under People are included as reviewees (partners are not, unless indicated). The lead reviewer is assigned separately: one by one in this table, or with “Import Excel”.</li></ul>
     <p class="xs mut">Existing assignments are not duplicated. Afterwards you can remove or add peers by hand.</p>
     ${fuera.length ? `<p class="xs mut">Left out: <b>${fuera.length}</b> person(s) who were not at the firm on this cycle's date: ${fuera.map(p=>esc(fullName(p))).join(", ")}.</p>` : ""}
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="createPending()"><i class="ti ti-wand"></i> Create ${rows.length} assignments</button></div>`);
