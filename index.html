@@ -1353,7 +1353,7 @@ async function buildResultsPdf(view, into){
       if(codes.length){
         const lab = k => st[k].text.replace(/ and accountability| Technical/g, "");
         const band = cur.band, aSerie = bandSeries(band, st, codes);
-        const W = codes.map(k => +(st[k].wsum / st[k].w).toFixed(2)), A = aSerie.data, S = codes.map(k => st[k].self);
+        const W = codes.map(k => st[k].w ? +(st[k].wsum / st[k].w).toFixed(2) : null), A = aSerie.data, S = codes.map(k => st[k].self);
         // dos arañas lado a lado; el lienzo tiene la misma proporción que el hueco en el papel (si no, salen achatadas)
         const gap = 6, rw = (pdf.w - gap) / 2, rcap = 8.5, rch = 50, rh = rcap + rch, px = mm => Math.round(mm * 6.6);
         const noteTxt = `Each competency is scored from 1 (Very Poor) to 5 (Outstanding). The weighted average gives each reviewer's opinion the weight set by the firm for this review cycle; ${band ? `the peer average is the weighted average of the scores received by the other people in the ${band.label} band (${band.n} people)` : "the line in orange is the person's own self-assessment"}. The self-assessment is shown separately and is not part of the averages. ${st._n} responses this year${hasPrev ? `, ${ps._n} the previous one` : ""}.`;
@@ -1365,7 +1365,7 @@ async function buildResultsPdf(view, into){
         cap(c.period_label || c.name, `Weighted average${band ? ", peer average and " : " and "}self-assessment`, pdf.x);
         pdf.image(chartImage(radarPdfConfig(codes.map(lab), W, A, S, aSerie.label), px(rw), px(rch)), pdf.x, pdf.y + rcap, rw, rch);
         if(hasPrev){ const pc = codes.filter(k => ps[k]); const pa = bandSeries(prev.band, ps, pc); cap(prev.c.period_label || prev.c.name, "The same lines from the previous year", pdf.x + rw + gap);
-          pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => +(ps[k].wsum / ps[k].w).toFixed(2)), pa.data, pc.map(k => ps[k].self), pa.label), px(rw), px(rch)), pdf.x + rw + gap, pdf.y + rcap, rw, rch); }
+          pdf.image(chartImage(radarPdfConfig(pc.map(lab), pc.map(k => ps[k].w ? +(ps[k].wsum / ps[k].w).toFixed(2) : null), pa.data, pc.map(k => ps[k].self), pa.label), px(rw), px(rch)), pdf.x + rw + gap, pdf.y + rcap, rw, rch); }
         else { cap("Previous year", "No earlier evaluation of the same type to compare with", pdf.x + rw + gap); }
         pdf.y += rh + 12;
         // distribución de notas: bloque aparte dentro del apartado, separado de las arañas por una línea con aire a ambos lados;
@@ -1623,7 +1623,7 @@ function scaleStats(rows){
   const out = {}; const keys = new Set();
   for(const r of rows){ if(r.kind !== 'scale' || r.value_num == null) continue; const o = (out[r.question_code] ||= { text:r.question_text, self:null, sum:0, n:0, wsum:0, w:0 });
     if(r.role === 'self'){ o.self = Number(r.value_num); continue; }
-    const w = r.weight || 1; o.sum += Number(r.value_num); o.n++; o.wsum += Number(r.value_num) * w; o.w += w; if(r.response_key) keys.add(r.response_key);
+    const w = r.weight == null ? 1 : Number(r.weight); o.sum += Number(r.value_num); o.n++; o.wsum += Number(r.value_num) * w; o.w += w; if(r.response_key) keys.add(r.response_key);
     o.hist = o.hist || [0,0,0,0,0]; const b = Math.min(5, Math.max(1, Math.round(Number(r.value_num)))); o.hist[b-1]++; }
   for(const k in out){ if(!out[k].n) delete out[k]; }
   if(Object.keys(out).length) out._n = keys.size || Math.max(...Object.values(out).filter(o=>o.n!=null).map(o=>o.n));
@@ -1638,10 +1638,10 @@ function drawResults(view){
   const st = scaleStats(view.cur.rows); const codes = Object.keys(st).filter(k=>k!=="_n"); if(!codes.length) return;
   const lab = k => st[k].text.replace(/ and accountability| Technical/g,"");
   const a = bandSeries(view.cur.band, st, codes);
-  radar3("rad_cur", codes.map(lab), codes.map(k => +(st[k].wsum/st[k].w).toFixed(2)), a.data, codes.map(k => st[k].self), a.label);
+  radar3("rad_cur", codes.map(lab), codes.map(k => st[k].w ? +(st[k].wsum/st[k].w).toFixed(2) : null), a.data, codes.map(k => st[k].self), a.label);
   const ps = view.prev ? scaleStats(view.prev.rows) : null;
   if(ps && document.getElementById("rad_prev")){ const pc = codes.filter(k => ps[k]); const pa = bandSeries(view.prev.band, ps, pc);
-    radar3("rad_prev", pc.map(lab), pc.map(k => +(ps[k].wsum/ps[k].w).toFixed(2)), pa.data, pc.map(k => ps[k].self), pa.label); }
+    radar3("rad_prev", pc.map(lab), pc.map(k => ps[k].w ? +(ps[k].wsum/ps[k].w).toFixed(2) : null), pa.data, pc.map(k => ps[k].self), pa.label); }
   codes.forEach((k, j) => bars2(`dist_${j}`, st[k].hist || [0,0,0,0,0], ps && ps[k] ? (ps[k].hist || [0,0,0,0,0]) : null, enExport(view.cur.c.period_label) || "This year", view.prev ? (enExport(view.prev.c.period_label) || "Previous year") : "", st[k].self));
 }
 AFTER.results = async function(){ drawResults(window.RES_VIEW); };
@@ -2278,7 +2278,7 @@ const ADMIN = {
     return `<div class="row" style="margin-bottom:14px;gap:10px;flex-wrap:wrap">
       <select class="inp" style="width:auto" onchange="ADM.cycle=this.value;render()">${CYCLES.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(cname(x))}</option>`).join("")}</select>
       <span class="sm mut">${as.length} assignments · ${Object.keys(byRev).length} people · ${sent} submitted</span><span style="flex:1"></span>
-      <button class="btn" onclick="exportWeightTemplate('${c.id}')" title="Excel to set how much each reviewer's opinion weighs, by competency, for each team (Deal Team, Nest, Operations). Draft: not applied yet."><i class="ti ti-scale"></i> Export weights</button>
+      <button class="btn" onclick="exportWeightTemplate('${c.id}')" title="Excel with this cycle's weights, in the same format as the weighting Excel: one sheet per group, people reviewed in blue. Edit it and upload it with Import weights."><i class="ti ti-scale"></i> Export weights</button>
       <button class="btn" onclick="importWeights('${c.id}')" title="Upload this cycle's weights Excel (one sheet per group, people reviewed in blue). You see a preview first and then save it into the cycle."><i class="ti ti-scale-outline"></i> Import weights</button>
       <button class="btn" onclick="exportLeadTemplate('${c.id}')" title="Excel with one row per person in this cycle and a column for their lead reviewer. Send it, have it filled in and upload it back with “Import Excel”."><i class="ti ti-file-download"></i> Export lead reviewers</button>
       <button class="btn" onclick="importAssign('${c.id}')" title="Upload the Excel with the people and their lead reviewers (in June, also the peers). Whatever its layout, the app interprets it and shows what will change before applying it."><i class="ti ti-file-upload"></i> Import Excel</button>
@@ -2800,55 +2800,82 @@ async function exportLeadTemplate(cycleId){
   toast(`Excel: ${gente.length} people`);
 }
 
-/* ----- Ponderaciones por evaluador y competencia (Hugo, 04-nov-2026) — BORRADOR, NO SE APLICA -----
+/* ----- Ponderaciones por evaluador y competencia (Hugo, 04-nov-2026; desde el 09-nov-2026 se guardan en el ciclo, SQL 32) -----
    Hugo pasó «Ponderación_puntuaciones_2026.xlsx»: una hoja por equipo evaluado (Deal Team, Nest, Operations), una fila por quien
    evalúa a ese equipo y una columna por competencia con el peso de su opinión; en blanco, lo que no aplica a ese equipo.
    «Aún no lo tenemos claro»: de momento solo se exporta la plantilla (vacía: «no tengas en cuenta las ponderaciones que hay») y
    se importa para VER lo que trae. No se guarda en la base de datos y la media ponderada sigue con review_weight(). */
 const W_COMP = [["ambassador","Abac Ambassador"],["judgement","Investment Judgement"],["attitude","Attitude"],["entrepreneurial","Entrepreneurial"],["ownership","Ownership and accountability"],["hard_skills","Hard Technical Skills"],["soft_skills","Soft Technical Skills"]];
-const W_TEAMS = [["deal","Deal Team"],["nest","Nest"],["operations","Operations"]];
-// competencias que puntúa el cuestionario de ese equipo (las que no, van en gris)
-function wCodesFor(team){ const t = team === "operations" ? "ops" : team;
-  return new Set(FORMS.filter(f => (f.code || "").startsWith(`dic_${t}_by_`)).flatMap(f => f.form_sections.flatMap(x => x.questions)).filter(q => q.kind === "scale").map(q => q.code)); }
-// quién evalúa a cada equipo, como en el Excel de Hugo: Deal Team ← socios, Joan, Deal Team y Operations; Nest ← socios, Nest
-// (Joan incluido) y Operations; Operations ← todo el mundo. Quien evalúa a Joan desde el Deal Team usa el cuestionario de Deal,
-// así que va en la hoja de Deal Team y no en la de Nest. La gente es la del ciclo (o la activa si aún no tiene asignaciones).
-async function wReviewers(cycleId){
+// Plantilla de ponderaciones con el MISMO formato que el Excel de Hugo (09-nov-2026), lista para editar y volver a importar:
+// una hoja por grupo de evaluados (IT PE, Nest, Operations, Support, Operating Partner = Joan evaluado por IT PE), las personas
+// evaluadas con esa hoja en AZUL, una fila por evaluador y una columna por competencia con el peso que tiene HOY ese ciclo
+// (el Excel importado si lo hay; si no, la regla v3; en diciembre 2024/2025, su regla original). En blanco = no cuenta.
+const W_GROUPS = [["itpe","IT PE"],["nest","Nest"],["ops","Operations"],["support","Support"],["op","Operating Partner"]];
+const W_BLUE = "FFDCE9F7";
+// qué competencias puntúa cada evaluador en cada grupo (hoja «Criterios»): Investment Judgement solo los perfiles de inversión y
+// solo en las matrices de inversión; Hard Technical Skills, Operations y Support no la puntúan en las matrices de inversión.
+function wApplies(g, r, code){
+  const inv = ["itpe", "nest", "op"].includes(g), rg = wGroup(r), perfilInv = ["eq", "itpe", "nest"].includes(rg);
+  if(code === "judgement") return inv && perfilInv;
+  if(code === "hard_skills") return !(inv && ["ops", "support"].includes(rg));
+  return true;
+}
+async function wGroupsOf(cycleId){
   const c = byId(CYCLES, cycleId);
-  const { data:asg } = await sb.from("assignments").select("reviewee_id,reviewer_id").eq("cycle_id", cycleId);
+  const { data:asg } = await sb.from("assignments").select("reviewee_id,reviewer_id,role").eq("cycle_id", cycleId);
   const ids = new Set((asg || []).flatMap(a => [a.reviewee_id, a.reviewer_id]));
-  const gente = ids.size ? PEOPLE.filter(p => ids.has(p.id)) : PEOPLE.filter(p => p.active && enPlantilla(p, c));
-  const out = { deal:new Set(), nest:new Set(), operations:new Set() };
-  const equity = r => r.is_partner && !isEvaluated(r), cruza = r => r.is_partner && isEvaluated(r) && r.team === 'nest';
-  for(const r of gente){ if(equity(r) || cruza(r) || ['deal','operations'].includes(r.team)) out.deal.add(r.id); if(equity(r) || ['nest','operations'].includes(r.team)) out.nest.add(r.id); out.operations.add(r.id); }
-  const orden = p => (p.is_partner && !isEvaluated(p) ? 0 : p.is_partner ? 1 : 2);
-  const T = { deal:0, nest:1, operations:2 };
-  for(const k in out) out[k] = [...out[k]].map(person).filter(Boolean).sort((a, b) => orden(a) - orden(b) || (T[a.team] ?? 9) - (T[b.team] ?? 9) || fullName(a).localeCompare(fullName(b)));
-  return out;
+  const todos = typeof ALL_PEOPLE !== "undefined" && ALL_PEOPLE.length ? ALL_PEOPLE : PEOPLE;
+  const gente = ids.size ? todos.filter(p => ids.has(p.id)) : todos.filter(p => p.active && enPlantilla(p, c));
+  const evaluados = (asg || []).length ? new Set(asg.map(a => a.reviewee_id)) : new Set(gente.filter(isEvaluated).map(p => p.id));
+  const joan = p => /nest partner/i.test(p.position || "");
+  const G = {}; for(const [g] of W_GROUPS) G[g] = { members:[], reviewers:[] };
+  for(const p of gente){ if(!evaluados.has(p.id)) continue; const g = wGroup(p); if(G[g]) G[g].members.push(p); if(joan(p)) G.op.members.push(p); }
+  // quién evalúa a cada grupo (como en la regla de diciembre): IT PE y Nest no se cruzan, salvo los Equity Partners y Joan;
+  // a Joan, IT PE le evalúa en la hoja Operating Partner, no en la de Nest.
+  const puede = (g, r) => { const rg = wGroup(r);
+    if(g === "itpe") return rg !== "nest" || joan(r);
+    if(g === "nest") return rg !== "itpe";
+    if(g === "op") return rg !== "nest";
+    return true; };
+  const T = { eq:0, itpe:1, nest:2, ops:3, support:4 };
+  for(const [g] of W_GROUPS){ const m = new Set(G[g].members.map(p => p.id));
+    G[g].reviewers = gente.filter(r => r.active !== false || ids.has(r.id)).filter(r => puede(g, r) && !(g === "op" && joan(r)))
+      .sort((x, y) => (wGroup(x) === "eq" ? 0 : m.has(x.id) ? 1 : 2) - (wGroup(y) === "eq" ? 0 : m.has(y.id) ? 1 : 2) || (T[wGroup(x)] ?? 9) - (T[wGroup(y)] ?? 9) || fullName(x).localeCompare(fullName(y))); }
+  return G;
 }
 async function exportWeightTemplate(cycleId){
-  const c = byId(CYCLES, cycleId); const revs = await wReviewers(cycleId);
-  if(!W_TEAMS.some(([t]) => revs[t].length)) return toast("Nobody reviews anyone in this cycle yet", true);
+  const c = byId(CYCLES, cycleId); await wEnsure(cycleId); const G = await wGroupsOf(cycleId);
+  if(!W_GROUPS.some(([g]) => G[g].members.length)) return toast("Nobody is reviewed in this cycle yet", true);
   toast("Preparing the Excel…"); await loadExcelJS();
   const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
   const { box, headRow, title, sub } = XL;
-  for(const [t, label] of W_TEAMS){
-    const codes = wCodesFor(t);
+  const origen = c.weight_scheme === "imported" ? "the weights imported into this cycle" : c.weight_scheme === "legacy" ? "the rule this cycle was shown with" : "the default weighting (v3)";
+  for(const [g, label] of W_GROUPS){
+    const { members, reviewers } = G[g]; if(!members.length) continue;
+    // el peso de un evaluador en este grupo: el que tiene sobre una persona del grupo (en Nest, mejor alguien que no sea Joan)
+    const ref = (g === "nest" && members.find(p => !/nest partner/i.test(p.position || ""))) || members[0];
     const ws = wb.addWorksheet(label, { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
-    title(ws, 1, `Weights · ${label} being reviewed · ${enExport(c.name)}`, 15);
-    sub(ws, 2, `How much each reviewer's opinion counts, by competency, when they review someone in ${label}. Grey: not scored in ${label}'s questionnaire. Draft: not applied yet.`);
-    headRow(ws, 4, ["Reviewer", ...W_COMP.map(x => x[1]), "Position", "E-mail"], 2 + W_COMP.length + 1);
-    revs[t].forEach((p, i) => { const r = ws.getRow(5 + i); r.values = [fullName(p), ...W_COMP.map(() => null), p.position || "", p.email];
-      r.getCell(1).font = { bold:true };
-      W_COMP.forEach(([code], j) => { const cell = r.getCell(2 + j); cell.alignment = { horizontal:"center" };
-        if(codes.size && !codes.has(code)) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:"FFE5E7EB" } };
-        else cell.dataValidation = { type:"decimal", operator:"between", allowBlank:true, formulae:[0, 10], showErrorMessage:true, errorStyle:"warning", errorTitle:"Weight", error:"Write a number (for example 1 or 2)" }; });
-      for(let x = 1; x <= W_COMP.length + 3; x++) r.getCell(x).border = box; });
-    [30, ...W_COMP.map(() => 14), 26, 32].forEach((w, i) => ws.getColumn(i + 1).width = w);
-    ws.getRow(4).height = 32; ws.getRow(4).alignment = { wrapText:true, vertical:"middle", horizontal:"center" };
+    title(ws, 1, `Weights · ${label} · ${enExport(c.name)}`, 15);
+    sub(ws, 2, `Rows in blue = people reviewed with this sheet. Each row = a reviewer and the weight of their opinion by competency. Blank = does not count. Filled in with ${origen}.`);
+    headRow(ws, 4, ["Name", ...W_COMP.map(x => x[1]), "Position", "Peer Group", "E-mail"], 1);
+    const mem = new Set(members.map(p => p.id));
+    reviewers.forEach((r, i) => { const row = ws.getRow(5 + i);
+      const vals = W_COMP.map(([code]) => { if(!wApplies(g, r, code) && c.weight_scheme !== "imported") return null;
+        const w = reviewWeight(ref.id === r.id && members.length > 1 ? members.find(p => p.id !== r.id) : ref, r, "peer", code, cycleId); return w ? w : null; });
+      row.values = [fullName(r), ...vals, r.position || "", { eq:"Equity Partners", itpe:"IT PE", nest:"Nest", ops:"Operations", support:"Support" }[wGroup(r)] || "", r.email || ""];
+      const azul = mem.has(r.id);
+      for(let x = 1; x <= W_COMP.length + 4; x++){ const cell = row.getCell(x); cell.border = box; if(x > 1 && x <= W_COMP.length + 1) cell.alignment = { horizontal:"center" };
+        if(azul) cell.fill = { type:"pattern", pattern:"solid", fgColor:{ argb:W_BLUE } }; }
+      row.getCell(1).font = { bold:true };
+      for(let j = 0; j < W_COMP.length; j++) row.getCell(2 + j).dataValidation = { type:"decimal", operator:"between", allowBlank:true, formulae:[0, 10], showErrorMessage:true, errorStyle:"warning", errorTitle:"Weight", error:"Write a number (for example 0.5, 1 or 2) or leave it blank" }; });
+    // quien se evalúa con esta hoja pero no evalúa a nadie en ella (no sale como fila): se añade en azul, sin pesos
+    let n = reviewers.length; for(const p of members) if(!reviewers.some(r => r.id === p.id)){ const row = ws.getRow(5 + n++); row.values = [fullName(p), ...W_COMP.map(() => null), p.position || "", "", p.email || ""];
+      for(let x = 1; x <= W_COMP.length + 4; x++){ row.getCell(x).border = box; row.getCell(x).fill = { type:"pattern", pattern:"solid", fgColor:{ argb:W_BLUE } }; } row.getCell(1).font = { bold:true }; }
+    [30, ...W_COMP.map(() => 14), 22, 16, 32].forEach((w, i) => ws.getColumn(i + 1).width = w);
   }
   const buf = await wb.xlsx.writeBuffer(); const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = `Weights - ${enExport(c.name)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"); el.click(); URL.revokeObjectURL(u);
-  toast("Excel: one sheet per team being reviewed");
+  toast("Excel: one sheet per group, people reviewed in blue");
+  return wb;
 }
 function importWeights(cycleId){
   let inp = document.getElementById("wFile");
