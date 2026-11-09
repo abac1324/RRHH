@@ -31,7 +31,7 @@ html,body{margin:0;height:100%;overflow:hidden}
 /* Todo el lienzo al 80%, igual que el dashboard del Portfolio Hub, para que las dos apps se vean del mismo tamano
    con el zoom por defecto del navegador (Hugo, 23-sep-2026). El 125% compensa la escala: 125 x 0,8 = 100.
    Se usa transform y no zoom: zoom rompe las coordenadas del raton de Chart.js. */
-body{display:flex;height:125vh;width:125%;transform:scale(.8);transform-origin:top left;overflow:hidden;font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.45}
+body{display:flex;height:125vh;height:calc(var(--app-h, 100vh) * 1.25);width:125%;transform:scale(.8);transform-origin:top left;overflow:hidden;font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.45}
 a{color:var(--navy)}
 /* ---------- Sidebar ---------- */
 .sidebar{width:256px;flex:0 0 256px;background:var(--sidebar);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:22px 18px 14px;height:100%;overflow-y:auto}
@@ -499,16 +499,25 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .ocx .pp .r{font-size:8.5px;font-style:italic;color:#5c6675;line-height:1.15;margin-top:1px;overflow-wrap:anywhere}
 .ocx .pp.lg .n{font-size:11px}.ocx .pp.lg .r{font-size:9px}
 @media(max-width:1100px){.oc-top,.oc-main{grid-template-columns:1fr}.oc-units{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-teams{grid-template-columns:1fr}}
-/* ---------- iPad y móvil (Hugo, 09-nov-2026: en el iPad no se podía bajar) ----------
-   El lienzo al 80 % con altura fija (125vh) y scroll interno no funciona bien en Safari táctil: allí «vh» es más alto que lo
-   que se ve y la parte de abajo queda fuera. En pantallas táctiles (clase .touch en <html>, la pone el script) la app pasa a
-   ser una página normal: sin escala, con el scroll de toda la página y el menú lateral fijo a la izquierda. */
-html.touch, html.touch body{height:auto;overflow:visible}
-html.touch body{transform:none;width:100%;height:auto;min-height:100vh;min-height:100dvh;overflow:visible}
-html.touch .sidebar{position:sticky;top:0;align-self:flex-start;height:100vh;height:100dvh}
-html.touch .main{min-height:100vh;min-height:100dvh}
-html.touch .topbar{position:sticky;top:0;z-index:20}
-html.touch .content{overflow:visible;flex:1 0 auto}
+/* ---------- iPad y móvil (Hugo, 09-nov-2026: «siempre al 80 %, en todos los dispositivos») ----------
+   El lienzo al 80 % es el mismo en todos. En el iPad no se podía bajar porque la altura iba en «vh», y en Safari «vh» es más alto
+   que lo que se ve: la parte de abajo quedaba fuera. Ahora la altura sale de la ventana visible real (--app-h, la pone el script
+   y se recalcula al girar o al cambiar las barras del navegador). */
+.content,.sidebar{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+/* Que todo quepa en cualquier dispositivo (Hugo, 09-nov-2026: «si algo no cabe según el dispositivo, que se ajuste»).
+   Una tabla más ancha que su tarjeta se desplaza de lado DENTRO de la tarjeta, sin salirse ni romper la página. */
+.card:has(table){overflow-x:auto}
+/* Pantallas estrechas (móvil en vertical): el menú pasa arriba, en una fila que se ajusta, y todo va a una columna */
+@media(max-width:760px){
+  body{flex-direction:column}
+  .sidebar{position:static;width:auto;flex:0 0 auto;height:auto;padding:12px 14px;border-right:none;border-bottom:1px solid var(--line);overflow:visible}
+  .brand{flex-direction:row;align-items:center;padding:0 0 8px}.brandlogo{width:120px}
+  .nav{flex-direction:row;flex-wrap:wrap;gap:4px;flex:none}.nav .grp{display:none}.nav a{padding:7px 10px;font-size:13px}
+  .userbox{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px}.userbox label,.userbox .role{display:none}.userbox .uc{margin-bottom:0}
+  .main{min-height:0}
+  .topbar{padding:0 16px;gap:10px}.content{padding:16px 14px 10px}
+  .g2,.g3,.g4,.two,.steps4,.opts,.dist,.fr-read,.radars{grid-template-columns:1fr !important}
+}
 </style>
 </head>
 <body>
@@ -647,10 +656,10 @@ function syncSelects(root){ (root || document).querySelectorAll("select[data-enh
 /* El body va escalado (arriba, en el CSS). getBoundingClientRect() y window.inner* devuelven pixeles de pantalla
    (ya escalados), pero el top/left de un position:fixed que cuelga del body se mide SIN escalar. Se divide para pasar
    de unos a otros; si no, los menus salen desplazados. */
-// iPad/móvil: sin escala (ver el CSS de html.touch). ?touch=1 en la URL lo fuerza para probarlo en el ordenador.
-const TOUCH_UI = /[?&]touch=1/.test(location.search) || (navigator.maxTouchPoints > 1 && (/iPad|iPhone|Android|Macintosh/.test(navigator.userAgent) || matchMedia("(pointer:coarse)").matches));
-if(TOUCH_UI) document.documentElement.classList.add("touch");
-const UI_SCALE = TOUCH_UI ? 1 : 0.8;
+// Alto del lienzo = alto visible de verdad (Safari en iPad: «vh» incluye lo que tapan sus barras). Ver el CSS de body.
+(() => { const setH = () => document.documentElement.style.setProperty("--app-h", (window.visualViewport ? window.visualViewport.height : window.innerHeight) + "px");
+  setH(); addEventListener("resize", setH); addEventListener("orientationchange", () => setTimeout(setH, 250)); if(window.visualViewport) visualViewport.addEventListener("resize", setH); })();
+const UI_SCALE = 0.8;
 const uiRect = el => { const r = el.getBoundingClientRect(); const k = 1 / UI_SCALE;
   return { left:r.left*k, right:r.right*k, top:r.top*k, bottom:r.bottom*k, width:r.width*k, height:r.height*k }; };
 const uiVW = () => window.innerWidth / UI_SCALE, uiVH = () => window.innerHeight / UI_SCALE;
@@ -895,7 +904,7 @@ function renderUserbox(){
   enhanceSelects(document.getElementById("userbox"));
 }
 let REVIEW_FROM = null;   // de dónde se abrió la ficha de una persona, para que «Back» vuelva allí
-function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; if(TOUCH_UI) window.scrollTo(0, 0); }
+function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
 let RENDER_SEQ = 0, CHARTS = [];
 function killCharts(){ CHARTS.forEach(c => { try{ c.destroy(); }catch(e){} }); CHARTS = []; }
 function radar(canvasId, labels, datasets){
