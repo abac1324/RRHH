@@ -29,6 +29,8 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+/* etiquetas juntas (Partner, Admin, sees all…): con aire entre ellas también cuando saltan de línea (Hugo, 09-nov-2026) */
+.pills{display:flex;flex-wrap:wrap;gap:6px}
 /* Todo el lienzo al 80%, igual que el dashboard del Portfolio Hub, para que las dos apps se vean del mismo tamano
    con el zoom por defecto del navegador (Hugo, 23-sep-2026). El 125% compensa la escala: 125 x 0,8 = 100.
    Se usa transform y no zoom: zoom rompe las coordenadas del raton de Chart.js. */
@@ -2315,7 +2317,7 @@ PAGES.people = async function(){
       <div class="grid g4">${list.map(p=>`<div class="card" style="padding:12px 14px;cursor:pointer" onclick="personInfo('${p.id}')"><div class="row">${av(p)}<div style="min-width:0"><div class="b" style="font-size:13px">${esc(fullName(p))}</div><div class="xs mut">${esc(p.position||"")}</div></div></div><div class="row" style="margin-top:8px;gap:5px">${p.is_partner?'<span class="pill navy">Partner</span>':''}${p.is_admin?'<span class="pill pur">Admin</span>':''}<span class="xs mut">since ${fmtD(p.start_date)}</span></div></div>`).join("")}</div></div>`; }).join("");
   }
   return bar + `<div class="card"><table><tr><th>Person</th><th>Position</th><th>Team</th><th>Since</th><th>Roles</th></tr>
-    ${act.slice().sort((a,b)=>((TEAM_ORDER[a.team] ?? 9) - (TEAM_ORDER[b.team] ?? 9)) || dirCmp(a,b)).map(p=>`<tr class="click" onclick="personInfo('${p.id}')"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span>':''}</td></tr>`).join("")}</table></div>`;
+    ${act.slice().sort((a,b)=>((TEAM_ORDER[a.team] ?? 9) - (TEAM_ORDER[b.team] ?? 9)) || dirCmp(a,b)).map(p=>`<tr class="click" onclick="personInfo('${p.id}')"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td><div class="pills">${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span>':''}</div></td></tr>`).join("")}</table></div>`;
 };
 function personInfo(id){
   const p = person(id); if(!p) return;
@@ -2438,7 +2440,7 @@ const ADMIN = {
     const { data:all, error } = await sb.from("people").select("*").order("last_name"); if(error) throw error;
     return `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editPerson(null)"><i class="ti ti-user-plus"></i> New person</button></div>
     <div class="card"><table><tr><th>Person</th><th>E-mail</th><th>Position</th><th>Team</th><th>Since</th><th>Roles</th><th>Active</th><th></th></tr>
-      ${[...all.filter(p=>p.active), ...all.filter(p=>!p.active)].map(p=>`<tr style="${p.active?'':'opacity:.55;background:#f1f3f6'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td>${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">sees all</span> ':''}${p.is_evaluated===false?'<span class="pill gray">not evaluated</span>':''}</td><td>${p.active?'<span class="y">yes</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Edit</button></td></tr>`).join("")}</table></div>`;
+      ${[...all.filter(p=>p.active), ...all.filter(p=>!p.active)].map(p=>`<tr style="${p.active?'':'opacity:.55;background:#f1f3f6'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td><div class="pills">${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">sees all</span> ':''}${p.is_evaluated===false?'<span class="pill gray">not evaluated</span>':''}</div></td><td>${p.active?'<span class="y">yes</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Edit</button></td></tr>`).join("")}</table></div>`;
   },
   /* ----- Ajustes ----- */
   async settings(){
