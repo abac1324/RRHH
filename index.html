@@ -1619,14 +1619,25 @@ function bars2(canvasId, cur, prv, labelCur, labelPrev, selfScore){
   CHARTS.push(chart);
 }
 // Medias por competencia a partir de las filas de my_results / results_for (compañeros + lead; la autoevaluación aparte)
+// Dos formatos de filas:
+//  · fila a fila (results_for: lead y socios, que pueden ver las respuestas): una fila por opinión, con su peso;
+//  · agregado (my_results, la propia persona, SQL 33): por competencia una fila role 'agg' con la media ponderada y el nº de
+//    respuestas, y filas response_key 'h' con cuántas opiniones dieron cada nota. Así a su navegador no llega ninguna opinión suelta.
 function scaleStats(rows){
-  const out = {}; const keys = new Set();
-  for(const r of rows){ if(r.kind !== 'scale' || r.value_num == null) continue; const o = (out[r.question_code] ||= { text:r.question_text, self:null, sum:0, n:0, wsum:0, w:0 });
+  const out = {}; const keys = new Set(); let aggN = 0;
+  const get = r => (out[r.question_code] ||= { text:r.question_text, self:null, sum:0, n:0, wsum:0, w:0 });
+  for(const r of rows){ if(r.kind !== 'scale') continue;
+    if(r.role === 'agg'){ const o = get(r); o.agg = r.value_num == null ? null : Number(r.value_num); o.hasAgg = true; aggN = Math.max(aggN, r.n_responses || 0); continue; }
+    if(r.value_num == null) continue; const o = get(r);
     if(r.role === 'self'){ o.self = Number(r.value_num); continue; }
-    const w = r.weight == null ? 1 : Number(r.weight); o.sum += Number(r.value_num); o.n++; o.wsum += Number(r.value_num) * w; o.w += w; if(r.response_key) keys.add(r.response_key);
-    o.hist = o.hist || [0,0,0,0,0]; const b = Math.min(5, Math.max(1, Math.round(Number(r.value_num)))); o.hist[b-1]++; }
+    const v = Number(r.value_num), b = Math.min(5, Math.max(1, Math.round(v))); o.hist = o.hist || [0,0,0,0,0];
+    if(r.response_key === 'h'){ const cnt = r.n_responses || 0; o.sum += v * cnt; o.n += cnt; o.hist[b-1] += cnt; continue; }
+    const w = r.weight == null ? 1 : Number(r.weight); o.sum += v; o.n++; o.wsum += v * w; o.w += w; if(r.response_key) keys.add(r.response_key);
+    o.hist[b-1]++; }
+  // formato agregado: la media ponderada la da el servidor (wsum/w = esa media; sin pesos válidos, w = 0 → sin media)
+  for(const k in out){ const o = out[k]; if(o.hasAgg){ if(o.agg == null){ o.wsum = 0; o.w = 0; } else { o.wsum = o.agg; o.w = 1; } } }
   for(const k in out){ if(!out[k].n) delete out[k]; }
-  if(Object.keys(out).length) out._n = keys.size || Math.max(...Object.values(out).filter(o=>o.n!=null).map(o=>o.n));
+  if(Object.keys(out).length) out._n = aggN || keys.size || Math.max(...Object.values(out).filter(o=>o.n!=null).map(o=>o.n));
   return out;
 }
 // Segunda línea de la araña: la media de peers del rango si la persona es del Deal Team, y si no la media aritmética
@@ -2945,7 +2956,7 @@ async function wLoad(cycleId, file){
     ${fuera.length ? `<div class="alert warn" style="margin-bottom:8px"><i class="ti ti-info-circle"></i><span>In blue but not reviewed in this cycle (ignored): ${esc(fuera.join(", "))}</span></div>` : ""}
     ${noRec ? `<div class="alert warn" style="margin-bottom:8px"><i class="ti ti-alert-triangle"></i><span>${noRec} rows not recognised (in red): they are not saved. Fix the name in the Excel or add the e-mail.</span></div>` : ""}
     ${res.map(r => `<h3 style="margin:14px 0 4px">${esc(r.hoja)} <span class="xs mut">· ${r.members.length} reviewed (${esc(r.members.map(p => p.first_name).join(", ") || "nobody in blue")}) · ${r.filas.filter(f => f.p).length} reviewers</span></h3>${tabla(r)}`).join("")}
-    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Close</button>${!cerrado && isAdmin() ? `<button class="btn primary" onclick="wSave()"><i class="ti ti-device-floppy"></i> Save weights in this cycle</button>` : ""}</div>`);
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeModal()">Close</button>${!cerrado && isAdmin() ? `<button class="btn pri" onclick="wSave()"><i class="ti ti-device-floppy"></i> Save weights in this cycle</button>` : ""}</div>`);
   const mo = document.querySelector(".modal-bg.open .modal"); if(mo){ mo.style.maxWidth = "1100px"; mo.style.width = "96vw"; mo.style.maxHeight = "86vh"; mo.style.overflow = "auto"; }
 }
 async function wSave(){
