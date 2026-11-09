@@ -998,7 +998,9 @@ PAGES.tasks = async function(){
   // Diciembre (360): solo se lista el ciclo más reciente; lo respondido en el diciembre anterior se abre con «Ver 20XX» en cada fila
   // (Hugo, 10-sep-2026: son muchas reviews y el listado entero del año anterior sobraba). Junio (cascada) se lista entero: cambian las personas.
   const decs = CYCLES.filter(c => byCycle[c.id] && c.kind === '360').sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""));
-  const cyclesSorted = CYCLES.filter(c => byCycle[c.id] && (c.kind !== '360' || c.id === (decs[0]||{}).id));
+  // Hugo, 09-nov-2026: en el desplegable, TODOS los ciclos en los que la persona tiene algo (del más reciente al más antiguo);
+  // por defecto el abierto o, si no hay, el más reciente (pickCycle). «View 2025» se mantiene en las filas de cada diciembre.
+  const cyclesSorted = CYCLES.filter(c => byCycle[c.id]);
   const selC = pickCycle(cyclesSorted, TASK_CYCLE); if(selC) TASK_CYCLE = selC.id;
   VIEW_CYCLE = selC;
   const prevDecOf = c => CYCLES.filter(x => x.kind === '360' && x.id !== c.id && (x.opens_at||"") < (c.opens_at||"")).sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""))[0] || null;
