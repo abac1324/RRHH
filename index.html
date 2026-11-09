@@ -1177,10 +1177,20 @@ async function doSubmit(){
 
 /* ---------- MIS RESULTADOS (lo publicado sobre mí) ---------- */
 // Construye la vista de resultados de una persona: ciclo actual + el anterior del mismo tipo para comparar
+// Resúmenes finales de una persona: los que la base de datos me deja leer enteros (RLS, SQL 37) y, de los demás ciclos ya
+// mostrados en los que fui su lead, solo los objetivos (released_objectives). Así un lead que no es socio nunca recibe lo redactado
+// de un año que no era suyo, ni en pantalla ni por la API.
+async function frRowsOf(personId, cycleId){
+  let q = sb.from("final_reviews").select("*").eq("reviewee_id", personId); if(cycleId) q = q.eq("cycle_id", cycleId);
+  const { data } = await q; const rows = (data || []).slice();
+  const { data:ob, error } = await sb.rpc("released_objectives", { p_reviewee: personId });
+  if(!error) for(const o of ob || []) if((!cycleId || o.cycle_id === cycleId) && !rows.some(r => r.cycle_id === o.cycle_id)) rows.push({ ...o, _objOnly: true });
+  return rows;
+}
 // Objetivos que le pusieron en el último diciembre anterior al ciclo (autoevaluación, ficha del lead y Mis resultados)
 const prevObjHTML = (c, fr, who) => `<div class="prev-obj"><div class="k"><i class="ti ti-target"></i> Objectives ${who === 'me' ? "you were" : "they were"} set in ${esc(cname(c, false))} <span class="pill gray" style="margin-left:auto">${fr.objectives_year||""}</span></div><div class="v">${esc(fr.objectives)}</div></div>`;
 async function prevObjectivesBlock(personId, cycle, who){
-  const { data:frs } = await sb.from("final_reviews").select("cycle_id,objectives,objectives_year").eq("reviewee_id", personId);   // la base de datos solo devuelve los resúmenes ya mostrados (o los de mis evaluados)
+  const frs = await frRowsOf(personId);   // solo los resúmenes ya mostrados (o los de mis evaluados); de otros años, solo objetivos
   if(!frs || !frs.length) return "";
   const before = cycle.kind === '360' ? (x => (x.opens_at||"") < (cycle.opens_at||"")) : (x => (x.opens_at||"") <= (cycle.opens_at||"9999"));
   const decs = CYCLES.filter(x => x.kind === '360' && x.id !== cycle.id && before(x)).sort((x,y) => (y.opens_at||"").localeCompare(x.opens_at||""));
@@ -1199,7 +1209,7 @@ async function peerBandOf(personId, cycleId){
 }
 async function buildResultsView(personId, cycleId, fetchRows){
   const c = byId(CYCLES, cycleId); if(!c) return null;
-  const { data:frs } = await sb.from("final_reviews").select("*").eq("reviewee_id", personId);
+  const frs = await frRowsOf(personId);
   const fr = (frs||[]).find(f => f.cycle_id === c.id);   // sin filtro de estado: el resumen ya no se cierra (SQL 22)
   const cur = { c, rows: await fetchRows(c.id), fr, band: c.kind === '360' ? await peerBandOf(personId, c.id) : null };
   let prev = null, dec = null;
@@ -1792,7 +1802,7 @@ PAGES.review = async function(arg){
   const selfA = as.find(a => a.role === 'self');   // su autoevaluación: el PDF se puede descargar esté enviada, en borrador o sin empezar
   window.REV_CTX = { c, p, as, ans:[], selfA };
   const myLead = as.find(a => a.role==='lead' && a.reviewer_id===ME.id); const iAmLead = !!myLead;
-  const { data:frRows } = await sb.from("final_reviews").select("*").eq("cycle_id", c.id).eq("reviewee_id", p.id).limit(1);
+  const frRows = await frRowsOf(p.id, c.id);
   // Hugo (04-nov-2026): el lead que NO es socio, cuando mira un año en que la persona no era suya («View 2025»), no ve nada de lo
   // redactado: solo los objetivos que se le pusieron ese año (los que se repasan en el Objectives Recap del año siguiente)
   const objOnly = !iAmLead && !canSeeAll() && !ME.is_partner;
