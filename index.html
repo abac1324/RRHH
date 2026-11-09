@@ -1026,7 +1026,7 @@ PAGES.tasks = async function(){
         <td><span class="pill ${a.role==='self'?'':'warn'}">${ROLE_LABEL[taskRole(a.role)]}</span></td>
         <td class="sm mut">${esc(f?formName(f.name):"—")}</td>
         <td>${a.status==='submitted'?`<span class="y">Submitted</span> <span class="xs mut">${fmtD(a.submitted_at)}</span>`:['closed','published'].includes(c.status)?`<span class="mut">No answer ${cycleYear(c)}</span>`:a.status==='draft'?`<span class="p">Draft</span>`:`<span class="mut">Pending</span>`}</td>
-        <td style="text-align:right"><div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:nowrap;white-space:nowrap">${prevC ? (pa => pa ? `<button class="btn sm ghost" title="Your answer about this person in ${esc(cname(prevC, false))}" onclick="go('form','${pa.id}')"><i class="ti ti-history"></i> View ${prevYear}</button>` : `<span class="xs mut">No answer ${prevYear}</span>`)(prevOf(a)) : ""}${a.status!=='submitted'&&c.status==='draft'?`<span class="xs mut">· opens soon</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'View':c.status==='open'?(a.status==='draft'?'Continue':'Start'):'View'}</button></div></td></tr>`; }).join("")}
+        <td style="text-align:right"><div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:nowrap;white-space:nowrap">${prevC ? (pa => pa ? `<button class="btn sm ghost" title="Your answer about this person in ${esc(cname(prevC, false))}" onclick="go('form','${pa.id}')"><i class="ti ti-history"></i> View ${prevYear}</button>` : `<span class="xs mut">No answer ${prevYear}</span>`)(prevOf(a)) : ""}${a.status!=='submitted'&&c.status==='draft'?`<span class="xs mut">· opens ${c.opens_at ? fmtD(c.opens_at) : "soon"}</span>`:""}<button class="btn sm ${a.status!=='submitted'&&c.status==='open'?'pri':''}" onclick="go('form','${a.id}')">${a.status==='submitted'?'View':c.status==='open'?(a.status==='draft'?'Continue':'Start'):'View'}</button></div></td></tr>`; }).join("")}
      </table></div>`; }).join("")
    : `<div class="card"><div class="empty"><div class="ic"><i class="ti ti-clipboard-check"></i></div><div class="t">You have no reviews assigned</div><div class="d">When a review cycle opens, your self-assessment and the peer reviews you have to complete will appear here.</div>${isAdmin()?`<button class="btn pri" style="margin-top:14px" onclick="go('admin')"><i class="ti ti-plus"></i> Create a cycle</button>`:""}</div></div>`}`;
 };
@@ -2212,7 +2212,7 @@ const TOURS = {
     [() => tq("#content .tabs"), "Four tabs", _ui("Cycles") + ", " + _ui("Assignments") + ", " + _ui("People") + " and " + _ui("Settings") + "."],
     [() => tq("#content .steps4"), "How to launch a review", "Always in this order: create the cycle, assign, open, close. The steps tick themselves as you go."],
     [() => tq("#content button", "New cycle"), "New cycle", "Choose the template (December or June), the name and the dates."],
-    [() => tq("#content .tab", "Assignments"), "Assignments", _ui("Fill with the December rule") + " proposes who reviews whom. Lead reviewers: one by one, or " + _ui("Export lead reviewers") + " → fill in the Excel → " + _ui("Import Excel") + "."],
+    [() => tq("#content .tab", "Assignments"), "Assignments", _ui("Fill with the December rule") + " proposes who reviews whom. Lead reviewers: one by one, or " + _ui("Export lead reviewers") + " → fill in the Excel → " + _ui("Import lead reviewers") + "."],
     [() => tq("#content .tab", "People"), "People", "Add or edit people and their marks: partner, sees all reviews, is reviewed."],
     [() => tq("#content .tab", "Settings"), "Settings", "Notification e-mails and the questionnaires loaded. Administrators never see anybody's answers in the app."],
   ]},
@@ -2385,7 +2385,7 @@ const ADMIN = {
       <div class="steps4">
         <div class="step4 ${CYCLES.length?'done':''}"><div class="k">${CYCLES.length?'<i class="ti ti-check"></i>':'1'}</div><div class="t">Create the cycle</div><div class="d">Choose the template (December or June), the name and the dates.</div></div>
         <div class="step4 ${asg&&asg.length?'done':''}"><div class="k">${asg&&asg.length?'<i class="ti ti-check"></i>':'2'}</div><div class="t">Assign</div><div class="d">Who does a self-assessment, who is whose lead reviewer (from the CEO's file) and which peers give their view. In December there is an automatic proposal; in June each person chooses their peers.</div></div>
-        <div class="step4 ${anyOpen||anyPub?'done':''}"><div class="k">${anyOpen||anyPub?'<i class="ti ti-check"></i>':'3'}</div><div class="t">Open</div><div class="d">Change the status to “Open”: from then on each person can answer their reviews in “My reviews” (before that they only see them as “opens soon”).</div></div>
+        <div class="step4 ${anyOpen||anyPub?'done':''}"><div class="k">${anyOpen||anyPub?'<i class="ti ti-check"></i>':'3'}</div><div class="t">Open</div><div class="d">The cycle opens by itself on its opening date (00:00, Madrid time), or earlier if you change the status to “Open” by hand. From then on each person can answer their reviews in “My reviews” (before that they only see them as “opens” + the date).</div></div>
         <div class="step4 ${anyPub?'done':''}"><div class="k">${anyPub?'<i class="ti ti-check"></i>':'4'}</div><div class="t">Close</div><div class="d">Each lead reviewer writes their summary and clicks “Show results” on each person's file. When everything is done, change the status to “Closed”. Closing does not show anything by itself.</div></div>
       </div></div>`;
     return guide + `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editCycle(null)"><i class="ti ti-plus"></i> New cycle</button></div>
@@ -2429,9 +2429,9 @@ const ADMIN = {
       <span class="sm mut">${as.length} assignments · ${Object.keys(byRev).length} people · ${sent} submitted</span><span style="flex:1"></span>
       <button class="btn" onclick="exportWeightTemplate('${c.id}')" title="Excel with this cycle's weights, in the same format as the weighting Excel: one sheet per group, people reviewed in blue. Edit it and upload it with Import weights."><i class="ti ti-scale"></i> Export weights</button>
       <button class="btn" onclick="importWeights('${c.id}')" title="Upload this cycle's weights Excel (one sheet per group, people reviewed in blue). You see a preview first and then save it into the cycle."><i class="ti ti-scale-outline"></i> Import weights</button>
-      <button class="btn" onclick="exportLeadTemplate('${c.id}')" title="Excel with one row per person in this cycle and a column for their lead reviewer. Send it, have it filled in and upload it back with “Import Excel”."><i class="ti ti-file-download"></i> Export lead reviewers</button>
-      <button class="btn" onclick="importAssign('${c.id}')" title="Upload the Excel with the people and their lead reviewers (in June, also the peers). Whatever its layout, the app interprets it and shows what will change before applying it."><i class="ti ti-file-upload"></i> Import Excel</button>
-      <button class="btn pri" onclick="prefill360('${c.id}')" title="Creates self-assessments and peers. The lead reviewer is left empty: set it with “Import Excel” (the CEO's file) or by hand."><i class="ti ti-wand"></i> Fill with the December rule</button>
+      <button class="btn" onclick="exportLeadTemplate('${c.id}')" title="Excel with one row per person in this cycle and a column for their lead reviewer. Send it, have it filled in and upload it back with “Import lead reviewers”."><i class="ti ti-file-download"></i> Export lead reviewers</button>
+      <button class="btn" onclick="importAssign('${c.id}')" title="Upload the Excel with the people and their lead reviewers (in June, also the peers). Whatever its layout, the app interprets it and shows what will change before applying it."><i class="ti ti-file-upload"></i> Import lead reviewers</button>
+      <button class="btn pri" onclick="prefill360('${c.id}')" title="Creates self-assessments and peers. The lead reviewer is left empty: set it with “Import lead reviewers” (the CEO's file) or by hand."><i class="ti ti-wand"></i> Fill with the December rule</button>
       <button class="btn" onclick="event.stopPropagation();moreActions(this,'${c.id}')"><i class="ti ti-dots"></i></button></div>
     ${!hasForm('self')||!hasForm('peer')||!hasForm('lead') ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-alert-triangle"></i> This cycle is missing the questionnaire for ${['self','lead','peer'].filter(r=>!hasForm(r)).map(r=>ROLE_LABEL[r]).join(", ")}. Edit it under “Cycles” before assigning.</div>` : ""}
     <div class="card" style="padding-top:8px"><table><tr><th style="width:26%">Person</th><th style="width:16%">Self-assessment</th><th style="width:24%">Lead reviewer</th><th>Peers reviewing them</th></tr>${rows}</table>
@@ -2631,6 +2631,7 @@ function editCycle(id){
    ${id ? "" : `<div style="margin-top:12px"><label class="xs mut">Which review is it?</label><select class="inp" id="cy_tpl" onchange="applyTemplate(this.value)">${Object.entries(CYCLE_TEMPLATES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join("")}</select><div class="alert warn" id="tpl_warn" style="margin-top:8px" hidden></div></div>`}
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Name</label><input type="text" id="cy_name" value="${esc(c.name)}" placeholder="Performance Evaluation · December 2026"></div><div><label class="xs mut">Period being reviewed</label><input type="text" id="cy_period" value="${esc(c.period_label||"")}" placeholder="2026"></div>
     <div><label class="xs mut">Opens on</label>${dateField("cy_open", c.opens_at)}</div><div><label class="xs mut">Closes on</label>${dateField("cy_close", c.closes_at)}</div></div>
+   <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. The closing date does not close it: it is shown to everyone and used for reminders.</div>
    <select id="cy_kind" hidden><option value="360" ${c.kind==='360'?"selected":""}>360</option><option value="cascade" ${c.kind==='cascade'?"selected":""}>cascade</option></select>
    <div class="summary" id="cy_summary"></div>
    <details id="adv" ${id?"":""} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;color:var(--ink);font-size:13px"><i class="ti ti-adjustments"></i> Change how it works <span class="mut" style="font-weight:500">· not usually needed</span></summary>
@@ -2668,7 +2669,9 @@ async function saveCycle(id){
   const add = (role, team, rteam, v) => { if(v) rows.push({cycle_id:cid, role, team, reviewer_team:rteam, form_id:v}); };
   for(const sl of FORM_SLOTS){ const v = f.forms[sl.key]; if(v) add(sl.role, sl.team, sl.rteam || null, v); }
   if(rows.length){ const { error } = await sb.from("cycle_forms").insert(rows); if(error) return err(error,"Cycle questionnaires"); }
-  closeModal(); toast("Cycle saved"); await loadCatalog(); render();
+  const was = id ? byId(CYCLES, id) : null;
+  const soon = (!was || (was.status === "draft" && !was.opened_at)) && row.opens_at && row.opens_at <= hoyISO();
+  closeModal(); toast(soon ? "Cycle saved. Its opening date has arrived: it will open by itself within 15 minutes" : "Cycle saved"); await loadCatalog(); render();
 }
 async function delCycle(id){
   const c = byId(CYCLES,id);
@@ -2682,9 +2685,9 @@ function setCycleStatus(id, status){
   if(closedNow && ["open", "draft"].includes(status)){
     title = `Reopen a closed cycle?`; danger = true; btn = "Yes, reopen it";
     body = `<b>${name}</b> is closed. Reopening it lets people edit and submit answers again, so results that may already have been shown could change. Do it only if you really need to.`;
-  } else if(status === "open"){ title = `Open ${name}?`; btn = "Open the cycle"; body = "Everyone with an assignment in this cycle will be able to answer it in “My reviews”."; }
+  } else if(status === "open"){ title = `Open ${name}?`; btn = "Open the cycle"; body = "Everyone with an assignment in this cycle will be able to answer it in “My reviews”." + (c.opens_at && c.opens_at > hoyISO() ? ` (Otherwise it would open by itself on ${fmtD(c.opens_at)}.)` : ""); }
   else if(status === "closed"){ title = `Close ${name}?`; btn = "Close the cycle"; body = "Nobody will be able to answer or submit any more, and the weights, teams and positions of this cycle are frozen. Lead reviewers can still write their summaries and show results."; }
-  else { title = `Move ${name} back to draft?`; btn = "Back to draft"; body = "People will see it as “opens soon” and will not be able to answer until it is opened again."; }
+  else { title = `Move ${name} back to draft?`; btn = "Back to draft"; body = "People will not be able to answer until it is opened again. It will not reopen by itself, unless you give it an opening date in the future: then it opens by itself on that date."; }
   window.STATUS_CHANGE = { id, status };
   openModal(`<h2>${title}</h2><p class="sm">${body}</p><div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal();render()">Cancel</button><button class="btn ${danger ? "" : "pri"}" ${danger ? 'style="background:var(--bad);color:#fff;border-color:var(--bad)"' : ""} onclick="doSetCycleStatus()">${btn}</button></div>`);
 }
@@ -2806,7 +2809,7 @@ async function prefill360(cycleId){
   const nSelf = rows.filter(r=>r.role==='self').length, nPeer = rows.length - nSelf;
   openModal(`<h2>Fill with the December rule</h2>
     <p class="sm">This will create <b>${nSelf}</b> self-assessments and <b>${nPeer}</b> peer reviews:</p>
-    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>Each <b>Deal Team</b> member is reviewed by the Deal Team and Operations.</li><li>Each <b>Operations</b> member is reviewed by everyone: Deal Team, Operations and Nest.</li><li>The <b>equity partners</b> review everyone, Nest included; nobody reviews them.</li><li>The <b>Nest partner</b> who is evaluated is reviewed by everyone, and reviews everyone.</li><li>Each <b>Nest</b> member is reviewed by the rest of Nest and Operations.</li><li>Only people marked “is evaluated” under People are included as reviewees (partners are not, unless indicated). The lead reviewer is assigned separately: one by one in this table, or with “Import Excel”.</li></ul>
+    <ul class="sm" style="margin:6px 0 10px;padding-left:18px;line-height:1.7"><li>Each <b>Deal Team</b> member is reviewed by the Deal Team and Operations.</li><li>Each <b>Operations</b> member is reviewed by everyone: Deal Team, Operations and Nest.</li><li>The <b>equity partners</b> review everyone, Nest included; nobody reviews them.</li><li>The <b>Nest partner</b> who is evaluated is reviewed by everyone, and reviews everyone.</li><li>Each <b>Nest</b> member is reviewed by the rest of Nest and Operations.</li><li>Only people marked “is evaluated” under People are included as reviewees (partners are not, unless indicated). The lead reviewer is assigned separately: one by one in this table, or with “Import lead reviewers”.</li></ul>
     <p class="xs mut">Existing assignments are not duplicated. Afterwards you can remove or add peers by hand.</p>
     ${fuera.length ? `<p class="xs mut">Left out: <b>${fuera.length}</b> person(s) who were not at the firm on this cycle's date: ${fuera.map(p=>esc(fullName(p))).join(", ")}.</p>` : ""}
     <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn pri" onclick="createPending()"><i class="ti ti-wand"></i> Create ${rows.length} assignments</button></div>`);
@@ -2965,7 +2968,7 @@ async function exportAssign(cycleId){
 }
 
 // Plantilla de lead reviewers (Hugo, 04-nov-2026): una fila por persona evaluada del ciclo, con su lead actual si ya lo tiene,
-// y un desplegable de la firma en la columna del lead. Se manda, la devuelven rellena y se sube tal cual con «Import Excel»:
+// y un desplegable de la firma en la columna del lead. Se manda, la devuelven rellena y se sube tal cual con «Import lead reviewers»:
 // el importador reconoce estas cabeceras («Person», «E-mail», «Lead reviewer») y, al no haber columnas de compañeros, no los toca.
 async function exportLeadTemplate(cycleId){
   const c = byId(CYCLES, cycleId);
