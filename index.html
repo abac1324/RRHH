@@ -499,6 +499,16 @@ input.numin{width:56px!important;display:inline-block;padding:4px 8px;text-align
 .ocx .pp .r{font-size:8.5px;font-style:italic;color:#5c6675;line-height:1.15;margin-top:1px;overflow-wrap:anywhere}
 .ocx .pp.lg .n{font-size:11px}.ocx .pp.lg .r{font-size:9px}
 @media(max-width:1100px){.oc-top,.oc-main{grid-template-columns:1fr}.oc-units{grid-template-columns:repeat(2,minmax(0,1fr))}.oc-teams{grid-template-columns:1fr}}
+/* ---------- iPad y móvil (Hugo, 09-nov-2026: en el iPad no se podía bajar) ----------
+   El lienzo al 80 % con altura fija (125vh) y scroll interno no funciona bien en Safari táctil: allí «vh» es más alto que lo
+   que se ve y la parte de abajo queda fuera. En pantallas táctiles (clase .touch en <html>, la pone el script) la app pasa a
+   ser una página normal: sin escala, con el scroll de toda la página y el menú lateral fijo a la izquierda. */
+html.touch, html.touch body{height:auto;overflow:visible}
+html.touch body{transform:none;width:100%;height:auto;min-height:100vh;min-height:100dvh;overflow:visible}
+html.touch .sidebar{position:sticky;top:0;align-self:flex-start;height:100vh;height:100dvh}
+html.touch .main{min-height:100vh;min-height:100dvh}
+html.touch .topbar{position:sticky;top:0;z-index:20}
+html.touch .content{overflow:visible;flex:1 0 auto}
 </style>
 </head>
 <body>
@@ -637,7 +647,10 @@ function syncSelects(root){ (root || document).querySelectorAll("select[data-enh
 /* El body va escalado (arriba, en el CSS). getBoundingClientRect() y window.inner* devuelven pixeles de pantalla
    (ya escalados), pero el top/left de un position:fixed que cuelga del body se mide SIN escalar. Se divide para pasar
    de unos a otros; si no, los menus salen desplazados. */
-const UI_SCALE = 0.8;
+// iPad/móvil: sin escala (ver el CSS de html.touch). ?touch=1 en la URL lo fuerza para probarlo en el ordenador.
+const TOUCH_UI = /[?&]touch=1/.test(location.search) || (navigator.maxTouchPoints > 1 && (/iPad|iPhone|Android|Macintosh/.test(navigator.userAgent) || matchMedia("(pointer:coarse)").matches));
+if(TOUCH_UI) document.documentElement.classList.add("touch");
+const UI_SCALE = TOUCH_UI ? 1 : 0.8;
 const uiRect = el => { const r = el.getBoundingClientRect(); const k = 1 / UI_SCALE;
   return { left:r.left*k, right:r.right*k, top:r.top*k, bottom:r.bottom*k, width:r.width*k, height:r.height*k }; };
 const uiVW = () => window.innerWidth / UI_SCALE, uiVH = () => window.innerHeight / UI_SCALE;
@@ -882,7 +895,7 @@ function renderUserbox(){
   enhanceSelects(document.getElementById("userbox"));
 }
 let REVIEW_FROM = null;   // de dónde se abrió la ficha de una persona, para que «Back» vuelva allí
-function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; }
+function go(page, arg){ if(page === "review" && PAGE !== "review" && PAGE !== "form") REVIEW_FROM = PAGE; PAGE = page; ARG = arg ?? null; render(); document.getElementById("content").scrollTop = 0; if(TOUCH_UI) window.scrollTo(0, 0); }
 let RENDER_SEQ = 0, CHARTS = [];
 function killCharts(){ CHARTS.forEach(c => { try{ c.destroy(); }catch(e){} }); CHARTS = []; }
 function radar(canvasId, labels, datasets){
