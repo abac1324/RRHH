@@ -2554,7 +2554,7 @@ function editCycle(id){
    </div>
    <div style="margin-top:10px;font-size:13px;line-height:2">Charts are shown from <input type="text" class="numin" id="v_thr" value="${v.anon_threshold??0}"> peers with an answer (0 = always).</div>
    <h3 style="margin-top:16px">3 · Other rules</h3>
-   ${sw("v_lead", v.reviewee_sees_lead!==false, "The person will also see their lead reviewer's review")}
+   ${sw("v_lead", v.reviewee_sees_lead!==false, "Include the lead reviewer's scores in the charts", "The person never sees the lead's review, only the final summary. Off: the charts use only the peers' scores.")}
    ${sw("v_lap", !!v.lead_after_peers, "The lead reviewer closes last", "They cannot submit their review until all the peers have submitted theirs.")}
    ${sw("v_picks", !!v.reviewee_picks, "Each person chooses their reviewers", "As in the June Mid Term Feedback: the person chooses 2-3 peers from their self-assessment (the lead reviewer is always assigned by the administrators). If off, the administrators assign the peers too.")}
    </details>
@@ -2764,7 +2764,6 @@ function moreActions(btn, cycleId){
   closeSelMenu();
   const m = document.createElement("div"); m.className = "selmenu actmenu";
   m.innerHTML = `<div class="sm-list">
-    <div class="sm-item" onclick="closeSelMenu();prefillSelf('${cycleId}')"><i class="ti ti-user"></i> Add only the self-assessments</div>
     <div class="sm-item" onclick="closeSelMenu();exportAssign('${cycleId}')"><i class="ti ti-download"></i> Export assignments to Excel</div>
     ${(byId(CYCLES, cycleId) || {}).status === "open" ? `<div class="sm-item" onclick="closeSelMenu();reopenPicker('${cycleId}')"><i class="ti ti-lock-open"></i> Reopen a submitted answer…</div>` : ""}
     <div class="sm-item" onclick="closeSelMenu();summaryLockPicker('${cycleId}')"><i class="ti ti-lock-open-2"></i> Reopen a lead's summary…</div>
