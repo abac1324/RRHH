@@ -762,6 +762,7 @@ const SERVER_ERR_EN = {
   "No puedes elegirte a ti mismo":"You cannot choose yourself",
   "Primero envía el resumen final":"Send the final summary first",
   "Primero escribe y guarda el resumen final":"Write and save the final summary first",
+  "El resumen final se escribe cuando el ciclo está cerrado":"The final summary is written once the cycle is closed",
   "Sin permiso para ver estos resultados":"You do not have permission to see these results",
   "Sin permiso para ver la media de peers":"You do not have permission to see the peer average",
   "Solo administración puede congelar un ciclo":"Only administrators can freeze a cycle",
@@ -1780,14 +1781,15 @@ PAGES.team = async function(){
     const c = byId(CYCLES, cid); const { data:prog } = await sb.rpc("cycle_progress", { p_cycle: cid });
     const prevDec = CYCLES.filter(x => x.kind === '360' && x.id !== cid && (x.opens_at||"") < (c.opens_at||"")).sort((x, y) => (y.opens_at||"").localeCompare(x.opens_at||""))[0] || null;
     const prevYear = prevDec ? (prevDec.opens_at || "").slice(0, 4) : "";
+    const cClosed = ['closed','published'].includes(c.status);   // el resumen se escribe con el ciclo cerrado (Hugo, 12-nov-2026; SQL 39)
     html += `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-users"></i> ${esc(cname(c, false))} <span class="r"><span class="pill ${c.status==='open'?'ok':'gray'}">${CYCLE_STATUS[c.status]}</span> <button class="btn sm" onclick="exportCycleExcel('${cid}', null, {summary:false, leadOnly:true})"><i class="ti ti-file-spreadsheet"></i> Excel of my reviewees</button></span></h3>
       <table><tr><th>Person</th><th>Self-assessment</th><th>Peers</th><th>My review</th><th>Final summary</th><th>Results</th><th></th></tr>
       ${byCycle[cid].map(a => { const p = (prog||[]).filter(x => x.reviewee_id === a.reviewee_id); const g = r => p.find(x=>x.role===r) || {total:0,submitted:0}; const fr = (frs||[]).find(f => f.cycle_id===cid && f.reviewee_id===a.reviewee_id); const ready = g('self').submitted && g('peer').submitted>=g('peer').total && a.status==='submitted';
         return `<tr><td class="row">${av(a.reviewee,"sm")} ${esc(fullName(a.reviewee))}</td><td>${g('self').submitted?'<span class="y">submitted</span>':'<span class="mut">pending</span>'}</td><td>${g('peer').submitted} / ${g('peer').total}</td><td>${a.status==='submitted'?'<span class="y">submitted</span>':a.status==='draft'?'<span class="p">draft</span>':'<span class="mut">pending</span>'}</td>
-        <td>${fr ? `<span class="pill ok">saved</span>` : (ready ? `<span class="pill">ready to write</span>` : `<span class="mut xs">waiting for answers</span>`)}</td>
+        <td>${fr ? `<span class="pill ok">saved</span>` : (!cClosed ? `<span class="mut xs">when the cycle closes</span>` : ready ? `<span class="pill">ready to write</span>` : `<span class="pill">to write</span>`)}</td>
         <td>${(rl => rl ? (rl.summary_reopened ? `<span class="pill warn">shown · reopened</span>` : `<span class="pill ok">shown · locked</span>`) : (fr ? `<span class="pill warn">not shown</span>` : `<span class="mut xs">—</span>`))((rels||[]).find(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id))}</td>
-        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${ready&&!(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id)?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">View all & summary</button>${prevDec ? ` <button class="btn sm ghost" title="Their file for ${esc(cname(prevDec, false))}, even if their lead was someone else" onclick="go('review',{cycle:'${prevDec.id}',reviewee:'${a.reviewee_id}'})"><i class="ti ti-history"></i> View ${prevYear}</button>` : ""}</td></tr>`; }).join("")}</table>
-      <div class="hint" style="margin-top:10px">Your own review of each person is answered in “My reviews”, like any other. Here you write the final summary and save it as often as needed, even once the cycle is closed; when you decide, click “Show results” so the person can see it, and the summary is locked (if it needs changing, the administrators reopen it).</div></div>`;
+        <td style="text-align:right;white-space:nowrap"><button class="btn sm ${cClosed&&!(rels||[]).some(r => r.cycle_id===cid && r.reviewee_id===a.reviewee_id)?'pri':''}" onclick="go('review',{cycle:'${cid}',reviewee:'${a.reviewee_id}'})">View all & summary</button>${prevDec ? ` <button class="btn sm ghost" title="Their file for ${esc(cname(prevDec, false))}, even if their lead was someone else" onclick="go('review',{cycle:'${prevDec.id}',reviewee:'${a.reviewee_id}'})"><i class="ti ti-history"></i> View ${prevYear}</button>` : ""}</td></tr>`; }).join("")}</table>
+      <div class="hint" style="margin-top:10px">Your own review of each person is answered in “My reviews”, like any other. Once the cycle is closed you write the final summary here (you will get an e-mail) and save it as often as needed; when you decide, click “Show results” so the person can see it, and the summary is locked (if it needs changing, the administrators reopen it).</div></div>`;
   }
   return html;
 };
@@ -1811,6 +1813,7 @@ PAGES.review = async function(arg){
   const peersAll = as.filter(a=>a.role==='peer'), peersDone = peersAll.filter(a=>a.status==='submitted');
   const selfDone = as.some(a=>a.role==='self' && a.status==='submitted');
   const shown = !!(rel && rel.length);
+  const cClosed = ['closed','published'].includes(c.status);   // el resumen se escribe con el ciclo cerrado (Hugo, 12-nov-2026; SQL 39)
   // Cabecera: nombre y puesto en una sola línea cada uno; el resto (ciclo, avance) ya está en el título y en la pestaña (Hugo, 22-sep-2026)
   const nowrap = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
   const head = (extra) => `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px;flex-wrap:wrap">${av(p,"lg")}<div style="flex:1 1 220px;min-width:0"><div class="hd" style="${nowrap}">${esc(fullName(p))}</div><div class="mut sm" style="${nowrap}">${esc(p.position||"")}</div></div>
@@ -1826,10 +1829,10 @@ PAGES.review = async function(arg){
   if(objOnly){ view.cur.fr = fr; view.objOnly = true; }
   window.RES_VIEW = view; window.REV_FR = fr;
   const status = shown ? `<span class="pill ok">results shown to ${esc(p.first_name)} on ${fmtD(rel[0].released_at)}</span>` : (fr ? `<span class="pill warn">summary saved · results not shown</span>` : `<span class="pill gray">not shown</span>`);
-  const showBtn = iAmLead && !shown ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Show results to ${esc(p.first_name)}</button>` : "";
+  const showBtn = iAmLead && !shown && cClosed ? `<button class="btn sm pri" onclick="showResults()"><i class="ti ti-eye"></i> Show results to ${esc(p.first_name)}</button>` : "";
   // Al mostrar resultados el resumen queda bloqueado (en gris); solo administración lo reabre (Hugo, 27-oct-2026; SQL 30)
   const locked = shown && !rel[0].summary_reopened;
-  const canEdit = iAmLead && !locked;
+  const canEdit = iAmLead && !locked && cClosed;
   const pending = []; if(!selfDone) pending.push("the self-assessment"); if(peersDone.length < peersAll.length) pending.push(`${peersAll.length - peersDone.length} peer${peersAll.length-peersDone.length>1?'s':''}`);
   // Hugo (09-nov-2026): si al lead le falta su propia review (la que responde como uno más), se le avisa; no es obligatorio
   const myOwnPending = iAmLead && myLead.status !== 'submitted';
@@ -1838,13 +1841,14 @@ PAGES.review = async function(arg){
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Lead reviewer's final summary <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
     ${canEdit && myOwnPending ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-pencil"></i><span style="flex:1;min-width:0">You have not submitted <b>your own review</b> of ${esc(p.first_name)} yet (you answer it as one more reviewer, in “My reviews”). It is better to do it before writing the summary, although it is not required.</span><button class="btn sm" onclick="go('form','${myLead.id}')">${myLead.status==='draft'?'Continue my review':'Write my review'}</button></div>` : ""}
     ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Still to be submitted: ${pending.join(" and ")}. You can keep writing and saving until you click “Show results”.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> All the other answers have been submitted${myOwnPending ? " (yours is still missing)" : ""}. Read last year's objectives and the scores first; the Excel has all the answers together.</div>`) : ""}
+    ${iAmLead && !cClosed ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i><span style="flex:1;min-width:0">The final summary is written once the cycle is closed${c.closes_at ? ` (it closes at the end of ${fmtD(c.closes_at)})` : ""}. You will get an e-mail then, and you will be able to write and save it here.</span></div>` : ""}
     ${iAmLead && locked ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i> Results shown: the summary is locked. If something needs changing, ask the administrators, who can reopen it.</div>` : ""}
     ${shown && !locked ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-lock-open"></i> The administrators have reopened this summary. ${esc(p.first_name)} can still see their results: whatever you save will be visible straight away.</div>` : ""}
     ${objOnly ? `<div class="hint" style="margin-bottom:14px"><i class="ti ti-eye-off"></i> You were not ${esc(p.first_name)}'s lead reviewer in this cycle: you can see the scores and the objectives that were set, not the written summary.</div>` : ""}
     <div class="${locked ? 'fr-locked' : ''}">${resultsHTML(view, 'other', { fr, canEdit, objOnly })}</div>
     ${canEdit ? `<div class="row" style="justify-content:flex-end;gap:8px;margin-top:14px"><span class="xs mut" style="flex:1" id="frState">${fr?`Last edited ${fmtDT(fr.updated_at)}`:""}</span>
       <button class="btn pri" onclick="saveFinalReview()"><i class="ti ti-device-floppy"></i> Save summary</button></div>
-    <div class="hint" style="margin-top:10px">${shown ? `<i class="ti ti-eye"></i> ${esc(p.first_name)} can already see this summary: whatever you save will be visible straight away.` : `<i class="ti ti-eye-off"></i> Save as often as you like, even once the cycle is closed. ${esc(p.first_name)} will not see anything until you click “Show results”; from then on the summary is locked.`}</div>` : ""}
+    <div class="hint" style="margin-top:10px">${shown ? `<i class="ti ti-eye"></i> ${esc(p.first_name)} can already see this summary: whatever you save will be visible straight away.` : `<i class="ti ti-eye-off"></i> Save as often as you like. ${esc(p.first_name)} will not see anything until you click “Show results”; from then on the summary is locked.`}</div>` : ""}
     </div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="go('${REVIEW_FROM && canSee(REVIEW_FROM) ? REVIEW_FROM : (canSeeAll()?'partners':'team')}')">Back</button></div>`;
 };
@@ -2202,7 +2206,7 @@ const TOURS = {
   ]},
   team: { page:"team", title:"Lead Reviewer", ic:"users", desc:"The people you are lead reviewer for: their progress and your final summary.", steps:[
     [() => tq("#content table"), "Your people", "Everyone you are lead reviewer for in this review, with how far each one has got. Your own review of each person is answered in " + _ui("My reviews") + ", like any other."],
-    [() => tq("#content button", "View all & summary"), "Their file", "Opens the same results the person will see, with buttons to download their self-assessment and an Excel with all the answers. There you write your summary and click " + _ui("Save summary") + " as often as you like."],
+    [() => tq("#content button", "View all & summary"), "Their file", "Opens the same results the person will see, with buttons to download their self-assessment and an Excel with all the answers. Once the cycle is closed, there you write your summary and click " + _ui("Save summary") + " as often as you like."],
     [() => tq("#content button", "View 20"), "Previous year", () => "Their file for the previous year, even if their lead reviewer was someone else." + (ME.is_partner ? "" : " If you were not their lead that year, you see the scores and the objectives only.")],
     [() => tq("#content button", "Excel of my reviewees"), "Excel", "The answers of all the people you are lead reviewer for."],
     [() => tq("#content .hint"), "Show results", "When the summary is ready, click " + _ui("Show results") + " in the person's file: from then on they see it and your summary is locked. If something needs changing, ask an administrator."],
@@ -2343,7 +2347,7 @@ function personInfo(id){
 let AUD = { action:"", who:"", person:"", cycle:"", period:"" };
 function audSet(k, v){ AUD[k] = v; render(); }
 PAGES.audit = async function(){
-  const ACTION = { mail_test:"Sent a test e-mail", mail_settings:"Changed the e-mail settings", submit:"Submitted a review", resubmit:"Resubmitted a corrected review", read_results:"Read their results", read_results_of:"Read another person's results", save_final_review:"Saved the final summary", send_final_review:"Saved the final summary (old flow)", show_results:"Showed the results to the person", reopen_assignment:"Reopened a submitted answer", reopen_final_review:"Reopened a lead's summary", lock_final_review:"Locked a lead's summary again", choose_reviewers:"Chose their peers", release:"Showed the results", import:"Imported" };
+  const ACTION = { mail_test:"Sent a test e-mail", cycle_auto_open:"Opened the cycle automatically (opening date)", cycle_auto_close:"Closed the cycle automatically (closing date)", mail_settings:"Changed the e-mail settings", submit:"Submitted a review", resubmit:"Resubmitted a corrected review", read_results:"Read their results", read_results_of:"Read another person's results", save_final_review:"Saved the final summary", send_final_review:"Saved the final summary (old flow)", show_results:"Showed the results to the person", reopen_assignment:"Reopened a submitted answer", reopen_final_review:"Reopened a lead's summary", lock_final_review:"Locked a lead's summary again", choose_reviewers:"Chose their peers", release:"Showed the results", import:"Imported" };
   const PERIODS = [["", "Any time"], ["1", "Today"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["90", "Last 3 months"]];
   let q = sb.from("audit_log").select("*").order("at", {ascending:false});
   if(AUD.action) q = q.eq("action", AUD.action);
@@ -2491,7 +2495,7 @@ const ADMIN = {
 };
 
 /* ----- Correos de aviso (SQL 11 + Edge Function enviar-correos) ----- */
-const MAIL_KIND = { cycle_open:"Starts today", opens_today:"Starts today", reminder:"Reminder", closes_today:"Closes today", cycle_closed:"Closed", results_ready:"Results shown", test:"Test" };
+const MAIL_KIND = { cycle_open:"Starts today", opens_today:"Starts today", reminder:"Reminder", closes_today:"Closes today", cycle_closed:"Closed", results_ready:"Results shown", lead_summaries:"Summaries open (leads)", test:"Test" };
 // tipo de aviso en pantalla; «reminder_7» = recordatorio a 7 días del cierre
 const mailKind = k => MAIL_KIND[k] || (/^reminder_(\d+)$/.test(k || "") ? `Reminder · ${k.split("_")[1]} days left` : k);
 async function mailSave(){
@@ -2608,7 +2612,7 @@ function updateSummary(){
   const li = [];
   li.push(`Each person fills in their <b>self-assessment</b>${v.reviewee_picks ? " and <b>chooses</b> 2-3 peers; their lead reviewer is assigned by the administrators" : ""}.`);
   li.push(`Their <b>peers</b> review them with the questionnaire for their team, without seeing their self-assessment or the others' answers.`);
-  li.push(`Their <b>lead reviewer</b> writes their review${v.lead_after_peers ? " (they can only submit it once all the peers have submitted theirs)" : ""} and, with all the answers in front of them, the <b>final summary</b>.${kind==='cascade' ? " In June they do not read the self-assessment or the answers until they have submitted their review." : ""}`);
+  li.push(`Their <b>lead reviewer</b> writes their review${v.lead_after_peers ? " (they can only submit it once all the peers have submitted theirs)" : ""} and, once the cycle is closed and with all the answers in front of them, the <b>final summary</b>.${kind==='cascade' ? " In June they do not read the self-assessment or the answers until they have submitted their review." : ""}`);
   li.push(`The person <b>sees nothing</b> until their lead reviewer clicks <b>“Show results”</b>: then they see the final summary${kind==='cascade' ? " and the objectives from their last December" : v.reviewee_sees_peers === "none" ? "" : " and their charts with their peers' averages, without names or individual answers"}.`);
   el.innerHTML = `<div class="t">How this review will work</div><ol>${li.map(x=>`<li>${x}</li>`).join("")}</ol>`;
 }
@@ -2641,7 +2645,7 @@ function editCycle(id){
    ${id ? "" : `<div style="margin-top:12px"><label class="xs mut">Which review is it?</label><select class="inp" id="cy_tpl" onchange="applyTemplate(this.value)">${Object.entries(CYCLE_TEMPLATES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join("")}</select><div class="alert warn" id="tpl_warn" style="margin-top:8px" hidden></div></div>`}
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Name</label><input type="text" id="cy_name" value="${esc(c.name)}" placeholder="Performance Evaluation · December 2026"></div><div><label class="xs mut">Period being reviewed</label><input type="text" id="cy_period" value="${esc(c.period_label||"")}" placeholder="2026"></div>
     <div><label class="xs mut">Opens on</label>${dateField("cy_open", c.opens_at)}</div><div><label class="xs mut">Closes on</label>${dateField("cy_close", c.closes_at)}</div></div>
-   <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. The closing date does not close it: it is shown to everyone and used for reminders.</div>
+   <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. It closes by itself when its closing date ends (23:59, Madrid time), and you can also close it earlier by hand. The closing date is shown to everyone and used for the reminders.</div>
    <select id="cy_kind" hidden><option value="360" ${c.kind==='360'?"selected":""}>360</option><option value="cascade" ${c.kind==='cascade'?"selected":""}>cascade</option></select>
    <div class="summary" id="cy_summary"></div>
    <details id="adv" ${id?"":""} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;color:var(--ink);font-size:13px"><i class="ti ti-adjustments"></i> Change how it works <span class="mut" style="font-weight:500">· not usually needed</span></summary>
