@@ -1005,6 +1005,13 @@ PAGES.tasks = async function(){
   const selC = pickCycle(cyclesSorted, TASK_CYCLE); if(selC) TASK_CYCLE = selC.id;
   VIEW_CYCLE = selC;
   const prevDecOf = c => CYCLES.filter(x => x.kind === '360' && x.id !== c.id && (x.opens_at||"") < (c.opens_at||"")).sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""))[0] || null;
+  // Mi lead reviewer en el ciclo elegido (Hugo, 19-nov-2026). La persona puede leer su fila de lead (política assignments_read).
+  let myLead = null;
+  if(selC && isEvaluated(ME)){ const { data:ld } = await sb.from("assignments").select("reviewer_id").eq("cycle_id", selC.id).eq("reviewee_id", ME.id).eq("role", "lead").limit(1); myLead = ld && ld[0] ? (person(ld[0].reviewer_id) || { id:ld[0].reviewer_id, first_name:"", last_name:"" }) : false; }
+  const leadLine = myLead === null ? "" : `<div class="row" style="gap:10px;margin:-4px 0 12px">${myLead ? `<i class="ti ti-user-star mut"></i><span class="sm">Your lead reviewer in this cycle:</span>${av(myLead,"sm")}<b class="sm">${esc(fullName(myLead))}</b>` : `<i class="ti ti-user-question mut"></i><span class="sm mut">Your lead reviewer in this cycle has not been assigned yet.</span>`}</div>`;
+  // Orden de la lista (Hugo, 19-nov-2026): primero la autoevaluación y después por equipos (Deal Team → Operations → Nest), cada uno por seniority como en Directory
+  const revOf = a => person(a.reviewee_id) || a.reviewee || {};
+  const taskCmp = (a, b) => (a.role==='self'?0:1) - (b.role==='self'?0:1) || peopleCmp(revOf(a), revOf(b));
   return `
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hello, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div>
     <span style="flex:1"></span>${all.some(a => a.status === 'submitted') ? `<button class="btn sm" onclick="exportMyReviewsExcel()" title="All the reviews you have submitted, one sheet per cycle"><i class="ti ti-file-spreadsheet"></i> Excel of my reviews</button>` : ""}</div>
@@ -1020,9 +1027,12 @@ PAGES.tasks = async function(){
     const needPick = c.status==='open' && (c.visibility||{}).reviewee_picks && list.some(a=>a.role==='self') && !PICKED[c.id];
     return `<div class="card" style="margin-bottom:16px"><h3><i class="ti ti-clipboard-check"></i> ${esc(cname(c, false))} <span class="r"><span class="pill ${c.status==='open'?'ok':c.status==='published'?'':'gray'}">${CYCLE_STATUS[c.status]}</span> ${c.closes_at?`<span class="xs mut">closes ${fmtD(c.closes_at)}</span>`:""}</span></h3>
      ${needPick ? `<div class="alert warn" style="margin-bottom:12px"><i class="ti ti-users-plus"></i> <span style="flex:1">In this cycle you choose the 2-3 peers who give you feedback. You do it from your self-assessment.</span><button class="btn sm pri" onclick="go('form','${list.find(a=>a.role==='self').id}')">Choose now</button></div>` : ""}
+     ${leadLine}
      ${prevC ? `<div class="xs mut" style="margin:-4px 0 10px">What you answered in ${esc(cname(prevC, false))} is under each person's “View ${prevYear}” button.</div>` : ""}
      <table><tr><th>Person</th><th>Review type</th><th>Form</th><th>Status</th><th></th></tr>
-     ${list.sort((a,b)=>(a.role==='self'?0:1)-(b.role==='self'?0:1)).map(a => { const f = byId(FORMS, a.form_id); return `<tr>
+     ${list.sort(taskCmp).map((a, i, arr) => { const f = byId(FORMS, a.form_id), t = a.role==='self' ? null : (revOf(a).team || ""), tPrev = i && arr[i-1].role!=='self' ? (revOf(arr[i-1]).team || "") : null;
+        const head = a.role!=='self' && t !== tPrev ? `<tr class="teamhead"><td colspan="5"><div class="th">${pillTeam(t) || '<span class="pill gray">No team</span>'}<span>${arr.filter(x => x.role!=='self' && (revOf(x).team || "") === t).length} people</span></div></td></tr>` : "";
+        return `${head}<tr>
         <td class="row">${av(a.reviewee,"sm")} ${a.role==='self' ? "<b>Me</b>" : esc(fullName(a.reviewee))}</td>
         <td><span class="pill ${a.role==='self'?'':'warn'}">${ROLE_LABEL[taskRole(a.role)]}</span></td>
         <td class="sm mut">${esc(f?formName(f.name):"—")}</td>
@@ -1493,6 +1503,8 @@ function orgTitles(p){
 }
 const rankOf = p => { if(!p) return 9; if(p.is_partner && !isEvaluated(p)) return 0; const ts = orgTitles(p); return Math.min(...(ts.length ? ts : [p.position]).map(rankTitle)); };
 const TEAM_ORDER = { deal:0, operations:1, nest:2 };
+// Orden de Directory (equipo → socios → cargo → antigüedad); lo usan también My reviews y People (Hugo, 19-nov-2026)
+const peopleCmp = (a, b) => ((TEAM_ORDER[a.team] ?? 9) - (TEAM_ORDER[b.team] ?? 9)) || (!!b.is_partner - !!a.is_partner) || rankOf(a) - rankOf(b) || bySeniority(a, b);
 const rankCompare = (a, b) => ((TEAM_ORDER[a.team] ?? 9) - (TEAM_ORDER[b.team] ?? 9)) || rankOf(a) - rankOf(b) || bySeniority(a, b);
 // Página que abre cada equipo dentro del PDF de todos
 function teamCover(pdf, team, people){
@@ -2227,7 +2239,7 @@ const TOURS = {
     [() => tq("#content .steps4"), "How to launch a review", "Always in this order: create the cycle, assign, open, close. The steps tick themselves as you go."],
     [() => tq("#content button", "New cycle"), "New cycle", "Choose the template (December or June), the name and the dates."],
     [() => tq("#content .tab", "Assignments"), "Assignments", _ui("Fill with the December rule") + " proposes who reviews whom. Lead reviewers: one by one, or " + _ui("Export lead reviewers") + " → fill in the Excel → " + _ui("Import lead reviewers") + "."],
-    [() => tq("#content .tab", "People"), "People", "Add or edit people and their marks: partner, sees all reviews, is reviewed."],
+    [() => tq("#content .tab", "People"), "People", "Add or edit people and their marks: partner, is reviewed, admin. Only partners who are not reviewed see all reviews (set automatically)."],
     [() => tq("#content .tab", "Settings"), "Settings", "Notification e-mails and the questionnaires loaded. Administrators never see anybody's answers in the app."],
   ]},
   audit: { page:"audit", title:"Audit log", ic:"shield-lock", desc:"Who did what, and when (administrators).", steps:[
@@ -2344,10 +2356,13 @@ function personInfo(id){
 
 /* ---------- AUDITORÍA ---------- */
 // Filtros del registro (Hugo, 09-nov-2026: «que se pueda filtrar, si no es un caos»). Filtra la base de datos, no solo lo cargado.
-let AUD = { action:"", who:"", person:"", cycle:"", period:"" };
+// Por defecto, el ciclo más reciente (Hugo, 19-nov-2026); «All cycles» sigue disponible. cycle = null → aún sin elegir
+let AUD = { action:"", who:"", person:"", cycle:null, period:"" };
+const audLatest = () => (CYCLES.slice().sort((a, b) => (b.opens_at||"").localeCompare(a.opens_at||""))[0] || {}).id || "";
 function audSet(k, v){ AUD[k] = v; render(); }
 PAGES.audit = async function(){
   const ACTION = { mail_test:"Sent a test e-mail", cycle_auto_open:"Opened the cycle automatically (opening date)", cycle_auto_close:"Closed the cycle automatically (closing date)", mail_settings:"Changed the e-mail settings", submit:"Submitted a review", resubmit:"Resubmitted a corrected review", read_results:"Read their results", read_results_of:"Read another person's results", save_final_review:"Saved the final summary", send_final_review:"Saved the final summary (old flow)", show_results:"Showed the results to the person", reopen_assignment:"Reopened a submitted answer", reopen_final_review:"Reopened a lead's summary", lock_final_review:"Locked a lead's summary again", choose_reviewers:"Chose their peers", release:"Showed the results", import:"Imported" };
+  if(AUD.cycle === null) AUD.cycle = audLatest();
   const PERIODS = [["", "Any time"], ["1", "Today"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["90", "Last 3 months"]];
   let q = sb.from("audit_log").select("*").order("at", {ascending:false});
   if(AUD.action) q = q.eq("action", AUD.action);
@@ -2364,14 +2379,17 @@ PAGES.audit = async function(){
   const byMail = Object.fromEntries(todos.map(p => [String(p.email || "").toLowerCase(), p]));
   const quien = e => { const p = byMail[String(e || "").toLowerCase()]; return p ? `${esc(fullName(p))}<div class="xs mut">${esc(e)}</div>` : esc(e || "—"); };
   const sel = (k, opts, ph) => `<select class="inp" style="width:auto;min-width:150px" onchange="audSet('${k}', this.value)"><option value="">${ph}</option>${opts.map(([v, l]) => `<option value="${esc(v)}" ${AUD[k] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
-  const gente = todos.slice().sort((x, y) => fullName(x).localeCompare(fullName(y)));
+  // En «Anyone», solo las personas del ciclo elegido: las que evalúan o son evaluadas en él (Hugo, 19-nov-2026)
+  let enCiclo = null;
+  if(AUD.cycle){ const { data:ca } = await sb.from("assignments").select("reviewer_id,reviewee_id").eq("cycle_id", AUD.cycle).limit(5000); enCiclo = new Set((ca||[]).flatMap(x => [x.reviewer_id, x.reviewee_id])); }
+  const gente = todos.filter(p => !enCiclo || enCiclo.has(p.id) || String(p.email||"").toLowerCase() === AUD.who || p.id === AUD.person).sort((x, y) => fullName(x).localeCompare(fullName(y)));
   const filtros = `<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     ${sel("action", Object.entries(ACTION).sort((x, y) => x[1].localeCompare(y[1])), "All actions")}
     ${sel("who", gente.map(p => [String(p.email || "").toLowerCase(), fullName(p)]), "Anyone (who did it)")}
     ${sel("person", gente.map(p => [p.id, fullName(p)]), "Anyone (about whom)")}
     ${sel("cycle", CYCLES.map(c => [c.id, cname(c)]), "All cycles")}
     ${sel("period", PERIODS.slice(1), "Any time")}
-    ${Object.values(AUD).some(Boolean) ? `<button class="btn sm" onclick="AUD={action:'',who:'',person:'',cycle:'',period:''};render()"><i class="ti ti-filter-off"></i> Clear filters</button>` : ""}</div>`;
+    ${AUD.action || AUD.who || AUD.person || AUD.period || AUD.cycle !== audLatest() ? `<button class="btn sm" onclick="AUD={action:'',who:'',person:'',cycle:null,period:''};render()"><i class="ti ti-filter-off"></i> Clear filters</button>` : ""}</div>`;
   const filtrado = Object.values(AUD).some(Boolean);
   return filtros + `<div class="card"><h3><i class="ti ti-shield-lock"></i> Log <span class="r">${data.length} ${data.length === 1 ? "entry" : "entries"}${raw.length >= LIMIT ? ` (the latest ${LIMIT}${filtrado ? " that match" : ""}; narrow it down with the filters)` : filtrado ? " match the filters" : ""}</span></h3>
     <table><tr><th>When</th><th>Who</th><th>What</th><th>About whom</th><th>Cycle</th></tr>
@@ -2456,7 +2474,7 @@ const ADMIN = {
     const { data:all, error } = await sb.from("people").select("*").order("last_name"); if(error) throw error;
     return `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editPerson(null)"><i class="ti ti-user-plus"></i> New person</button></div>
     <div class="card"><table><tr><th>Person</th><th>E-mail</th><th>Position</th><th>Team</th><th>Since</th><th>Roles</th><th>Active</th><th></th></tr>
-      ${[...all.filter(p=>p.active), ...all.filter(p=>!p.active)].map(p=>`<tr style="${p.active?'':'opacity:.55;background:#f1f3f6'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td><div class="pills">${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">sees all</span> ':''}${p.is_evaluated===false?'<span class="pill gray">not evaluated</span>':''}</div></td><td>${p.active?'<span class="y">yes</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Edit</button></td></tr>`).join("")}</table></div>`;
+      ${[...all.filter(p=>p.active).sort(peopleCmp), ...all.filter(p=>!p.active).sort(peopleCmp)].map(p=>`<tr style="${p.active?'':'opacity:.55;background:#f1f3f6'}"><td class="row">${av(p,"sm")} ${esc(fullName(p))}</td><td class="xs">${esc(p.email)}</td><td class="sm">${esc(p.position||"")}</td><td>${pillTeam(p.team)||'<span class="pill gray">—</span>'}</td><td class="xs mut">${fmtD(p.start_date)}</td><td><div class="pills">${p.is_partner?'<span class="pill navy">Partner</span> ':''}${p.is_admin?'<span class="pill pur">Admin</span> ':''}${p.sees_all?'<span class="pill">sees all</span> ':''}${p.is_evaluated===false?'<span class="pill gray">not evaluated</span>':''}</div></td><td>${p.active?'<span class="y">yes</span>':'<span class="mut">no</span>'}</td><td style="text-align:right"><button class="btn sm" onclick="editPerson('${p.id}')">Edit</button></td></tr>`).join("")}</table></div>`;
   },
   /* ----- Ajustes ----- */
   async settings(){
@@ -3375,7 +3393,6 @@ async function editPerson(id){
     <div><label class="xs mut">Team</label><select class="inp" id="p_team"><option value="">—</option>${Object.entries(TEAM_LABEL).map(([k,l])=>`<option value="${k}" ${p.team===k?"selected":""}>${l}</option>`).join("")}</select></div><div><label class="xs mut">Start date</label>${dateField("p_sd", p.start_date)}</div></div>
    <div class="two"><div><label class="xs mut">Leaving date <span class="xs mut">(once set, the person becomes inactive and is left out of later cycles)</span></label>${dateField("p_ed", p.end_date)}</div><div></div></div>
    <div class="chk"><input type="checkbox" id="p_partner" ${p.is_partner?"checked":""}><label>Partner <span class="xs mut">(firm role: shown as a label; how much their opinion weighs depends on the cycle's weighting)</span></label></div>
-   <div class="chk"><input type="checkbox" id="p_sees" ${p.sees_all?"checked":""}><label>Sees all the firm's reviews <span class="xs mut">(All reviews)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_eval" ${p.is_evaluated!==false?"checked":""}><label>Is evaluated <span class="xs mut">(included as a reviewee in the cycles)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_admin" ${p.is_admin?"checked":""}><label>Admin <span class="xs mut">(cycles, assignments and people)</span></label></div>
    <div class="chk"><input type="checkbox" id="p_active" ${p.active!==false?"checked":""}><label>Active (can sign in and receives assignments)</label></div>
@@ -3394,7 +3411,9 @@ async function doDeletePerson(id){
 }
 async function savePerson(id){
   const g = x => document.getElementById(x);
-  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:readDate("p_sd"), end_date:readDate("p_ed"), is_partner:g("p_partner").checked, sees_all:g("p_sees").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
+  const row = { first_name:g("p_fn").value.trim(), last_name:g("p_ln").value.trim(), email:g("p_em").value.trim().toLowerCase(), position:g("p_pos").value.trim()||null, team:g("p_team").value||null, start_date:readDate("p_sd"), end_date:readDate("p_ed"), is_partner:g("p_partner").checked, is_evaluated:g("p_eval").checked, is_admin:g("p_admin").checked, active:g("p_active").checked };
+  // «Sees all the firm's reviews» ya no es una casilla (Hugo, 19-nov-2026): solo los socios que no se evalúan. La base de datos lo fija sola (SQL 41); aquí, igual para la simulación
+  row.sees_all = row.is_partner && !row.is_evaluated;
   if(!row.first_name || !row.email) return toast("First name and e-mail are required", true);
   if(row.start_date === undefined || row.end_date === undefined) return toast("Dates must be written as dd/mm/yyyy", true);
   // Con fecha de salida ya pasada se desactiva sola: si no, hay que acordarse de desmarcar la casilla a mano (Hugo, 30-sep-2026)
