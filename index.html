@@ -852,12 +852,9 @@ async function boot(){
   }
   // Producción: Microsoft
   sb = makeClient(null);
-  sb.auth.onAuthStateChange(async (event, session) => {
-    if(session && session.user && session.user.email){ await enter(session.user.email); }
-    else showGate();
-  });
+  sb.auth.onAuthStateChange((event, session) => { onAuth(event, session); });
   const { data } = await sb.auth.getSession();
-  if(data && data.session){ await enter(data.session.user.email); return; }
+  if(data && data.session){ await onAuth("GET_SESSION", data.session); return; }
   const q = new URLSearchParams(location.search), h = new URLSearchParams(location.hash.replace(/^#/, ""));
   const oauthErr = q.get("error_description") || h.get("error_description") || q.get("error") || h.get("error");
   const manual = (()=>{ try{ return sessionStorage.getItem("abac_eval_salir") === "1"; }catch(e){ return false; } })();
@@ -865,6 +862,17 @@ async function boot(){
   // Hugo (07-sep-2026): sin tarjeta intermedia. Sin sesión → directo a Microsoft; tras cerrar sesión → Microsoft con selector de cuenta.
   if(AUTO_MS_LOGIN){ msLogin(manual); return; }
   showGate();
+}
+// Avisos de sesión (Hugo, 19-nov-2026: «cuando estás un rato inactivo la página se recarga y se va a My reviews»).
+// supabase-js renueva la sesión cada hora y al volver a una pestaña inactiva (TOKEN_REFRESHED / SIGNED_IN); antes cada aviso
+// volvía a entrar (enter) y sacaba a la persona del formulario o la ficha. Ahora solo se entra si es otra persona; sin sesión, la puerta.
+let AUTH_EMAIL = null;
+async function onAuth(event, session){
+  const email = session && session.user && session.user.email ? String(session.user.email).toLowerCase() : null;
+  if(!email){ AUTH_EMAIL = null; showGate(); return; }
+  if(email === AUTH_EMAIL) return;          // misma persona: renovación de la sesión, no se toca la pantalla
+  AUTH_EMAIL = email;
+  await enter(email);
 }
 function showGate(msg){ const g=document.getElementById("gate"); g.hidden=false; requestAnimationFrame(() => g.classList.add("open"));  /* la clase open es la que le da opacidad (fundido de los modales) */ if(msg){ const e=document.getElementById("gateErr"); e.hidden=false; e.textContent=msg; } }
 function msLogin(force){
