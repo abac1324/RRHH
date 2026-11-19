@@ -1083,9 +1083,13 @@ PAGES.form = async function(id){
       ${locked ? `<div class="hint" style="margin-top:8px"><i class="ti ti-lock"></i> One of your reviewers has already started: the choice is now fixed. Talk to the administrators if it needs changing.</div>`
                : `<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn pri sm" onclick="saveReviewerPicks('${a.cycle_id}')"><i class="ti ti-check"></i> Save choice</button></div>`}</div>`;
   }
+  // Lead reviewer de la persona evaluada, en la cabecera (Hugo, 19-nov-2026). SQL 42: solo a quien tiene una review sobre ella.
+  let revLead = null;
+  if(a.role !== "self" && a.role !== "lead"){ const { data:lid, error:le } = await sb.rpc("reviewee_lead", { p_cycle:a.cycle_id, p_reviewee:a.reviewee_id }); if(!le && lid) revLead = person(lid) || null; }
+  const leadInfo = revLead ? ` · <span class="xs mut">Lead reviewer:</span> <b class="sm">${esc(fullName(revLead))}</b>` : "";
   const head = `<div class="card" style="margin-bottom:16px"><div class="row" style="gap:16px">${av(a.reviewee,"lg")}
     <div style="flex:1"><div class="hd">${a.role==='self' ? "My self-assessment" : esc(fullName(a.reviewee))}</div>
-      <div class="mut sm">${esc(a.reviewee.position||"")} · ${TEAM_LABEL[a.reviewee.team]||""} · <span class="pill ${a.role==='self'?'':'warn'}">${ROLE_LABEL[taskRole(a.role)]}</span> · ${esc(formName(form.name))}</div></div>
+      <div class="mut sm">${esc(a.reviewee.position||"")} · ${TEAM_LABEL[a.reviewee.team]||""} · <span class="pill ${a.role==='self'?'':'warn'}">${ROLE_LABEL[taskRole(a.role)]}</span> · ${esc(formName(form.name))}${leadInfo}</div></div>
     <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">${mine && a.role==='self' && a.status==='submitted' ? `<button class="btn sm nopdf" onclick="downloadFormPDF()"><i class="ti ti-file-type-pdf"></i> Download PDF</button>` : ""}<div class="pill ${a.status==='submitted'?'ok':a.status==='draft'?'warn':'gray'}">${STATUS_LABEL[a.status]}</div>${a.submitted_at?`<div class="xs mut">${fmtDT(a.submitted_at)}</div>`:""}</div></div>
     ${""/* la introducción del cuestionario (form.intro, «Welcome to Performance Evaluation…») no se enseña nunca (Hugo, 10-sep-2026) */}
     ${!mine ? `<div class="alert info" style="margin-top:12px"><i class="ti ti-eye"></i> You are viewing the review written by <b>${esc(fullName(a.reviewer))}</b>.</div>` : ""}
