@@ -2628,13 +2628,17 @@ function readDate(id){ const el = document.getElementById(id); const t = (el && 
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
 // Cierre automático a una hora concreta (Hugo, 20-nov-2026; SQL 43): cycles.close_at = fecha y hora de Madrid. Vacío = 23:59 de closes_at.
 const closeAtParts = c => { const v = c && c.close_at ? String(c.close_at) : ""; return v ? { d: v.slice(0, 10), t: v.slice(11, 16) } : null; };
+// Hora con los desplegables de la app (no el reloj del navegador; Hugo, 20-nov-2026): hora 00–23 y minutos de 5 en 5
+function timeSelects(id, val){ const [h, m] = (val || "").split(":"); const p2 = n => String(n).padStart(2, "0");
+  return `<select class="inp" id="${id}_h" style="width:78px"><option value="">hh</option>${Array.from({length:24}, (_, i) => `<option value="${p2(i)}" ${h === p2(i) ? "selected" : ""}>${p2(i)}</option>`).join("")}</select><span class="mut">:</span><select class="inp" id="${id}_m" style="width:78px">${Array.from({length:12}, (_, i) => `<option value="${p2(i*5)}" ${(m || "00") === p2(i*5) ? "selected" : ""}>${p2(i*5)}</option>`).join("")}</select>`; }
+function readTime(id){ const h = (document.getElementById(id + "_h") || {}).value || "", m = (document.getElementById(id + "_m") || {}).value || "00"; return h ? `${h}:${m}` : ""; }
 function closeMomentText(c){ const p = closeAtParts(c); return p ? `on ${fmtD(p.d)} at ${p.t}` : (c && c.closes_at ? `at the end of ${fmtD(c.closes_at)}` : ""); }
 function readCycleForm(){
   const g = x => document.getElementById(x);
   const mode = (document.querySelector('input[name="vmode"]:checked')||{}).value || "aggregate";
   return {
     name:g("cy_name").value.trim(), kind:g("cy_kind").value, period_label:g("cy_period").value.trim()||null, opens_at:readDate("cy_open"), closes_at:readDate("cy_close"),
-    close_d:readDate("cy_cad"), close_t:(g("cy_cat") || {}).value || "",
+    close_d:readDate("cy_cad"), close_t:readTime("cy_cat"),
     forms:Object.fromEntries(FORM_SLOTS.map(sl => [sl.key, (g("cf_" + sl.key) || {}).value || ""])),
     visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||0, reviewee_sees_lead:g("v_lead").checked, peers_see_self:false, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
   };
@@ -2679,7 +2683,7 @@ function editCycle(id){
    ${id ? "" : `<div style="margin-top:12px"><label class="xs mut">Which review is it?</label><select class="inp" id="cy_tpl" onchange="applyTemplate(this.value)">${Object.entries(CYCLE_TEMPLATES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join("")}</select><div class="alert warn" id="tpl_warn" style="margin-top:8px" hidden></div></div>`}
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Name</label><input type="text" id="cy_name" value="${esc(c.name)}" placeholder="Performance Evaluation · December 2026"></div><div><label class="xs mut">Period being reviewed</label><input type="text" id="cy_period" value="${esc(c.period_label||"")}" placeholder="2026"></div>
     <div><label class="xs mut">Opens on</label>${dateField("cy_open", c.opens_at)}</div><div><label class="xs mut">Closes on <span class="xs mut">(shown to everyone and used for the reminders)</span></label>${dateField("cy_close", c.closes_at)}</div></div>
-   <div class="two"><div><label class="xs mut">Closes automatically at <span class="xs mut">(optional, Madrid time)</span></label><div class="row" style="gap:8px;flex-wrap:nowrap"><div style="flex:1;min-width:0">${dateField("cy_cad", (closeAtParts(c) || {}).d || "")}</div><input type="time" class="inp" id="cy_cat" value="${(closeAtParts(c) || {}).t || ""}" style="width:110px"></div></div><div></div></div>
+   <div class="two"><div><label class="xs mut">Closes automatically at <span class="xs mut">(optional, Madrid time)</span></label><div class="row" style="gap:8px;flex-wrap:nowrap"><div style="flex:1;min-width:0">${dateField("cy_cad", (closeAtParts(c) || {}).d || "")}</div>${timeSelects("cy_cat", (closeAtParts(c) || {}).t || "")}</div></div><div></div></div>
    <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. It closes by itself when its closing date ends (23:59, Madrid time) or, if you fill in “Closes automatically at”, at that exact date and time (for example, closing date 23/11 and closes automatically at 24/11 08:00, to give extra hours overnight). You can always close it earlier by hand.</div>
    <select id="cy_kind" hidden><option value="360" ${c.kind==='360'?"selected":""}>360</option><option value="cascade" ${c.kind==='cascade'?"selected":""}>cascade</option></select>
    <div class="summary" id="cy_summary"></div>
