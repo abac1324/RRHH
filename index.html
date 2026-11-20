@@ -1865,7 +1865,7 @@ PAGES.review = async function(arg){
     `<div class="card" id="resCard"><h3><i class="ti ti-file-check"></i> Lead reviewer's final summary <span class="r">${frStatus}${fr && fr.lead_id ? ` · ${esc(fullName(person(fr.lead_id)))}` : ""}</span></h3>
     ${canEdit && myOwnPending ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-pencil"></i><span style="flex:1;min-width:0">You have not submitted <b>your own review</b> of ${esc(p.first_name)} yet (you answer it as one more reviewer, in “My reviews”). It is better to do it before writing the summary, although it is not required.</span><button class="btn sm" onclick="go('form','${myLead.id}')">${myLead.status==='draft'?'Continue my review':'Write my review'}</button></div>` : ""}
     ${canEdit ? (pending.length ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-hourglass"></i> Still to be submitted: ${pending.join(" and ")}. You can keep writing and saving until you click “Show results”.</div>` : `<div class="alert ok" style="margin-bottom:14px"><i class="ti ti-circle-check"></i> All the other answers have been submitted${myOwnPending ? " (yours is still missing)" : ""}. Read last year's objectives and the scores first; the Excel has all the answers together.</div>`) : ""}
-    ${iAmLead && !cClosed ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i><span style="flex:1;min-width:0">The final summary is written once the cycle is closed${c.closes_at ? ` (it closes at the end of ${fmtD(c.closes_at)})` : ""}. You will get an e-mail then, and you will be able to write and save it here.</span></div>` : ""}
+    ${iAmLead && !cClosed ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i><span style="flex:1;min-width:0">The final summary is written once the cycle is closed${c.closes_at ? ` (it closes at the end of ${fmtD(c.closes_at)})` : ""}${""/* a todo el mundo se le dice el día de cierre; la hora real (close_at) solo la ve administración (Hugo, 20-nov-2026) */}. You will get an e-mail then, and you will be able to write and save it here.</span></div>` : ""}
     ${iAmLead && locked ? `<div class="alert" style="margin-bottom:14px;background:#eef0f4;border-color:#dde1e8;color:#5b6372"><i class="ti ti-lock"></i> Results shown: the summary is locked. If something needs changing, ask the administrators, who can reopen it.</div>` : ""}
     ${shown && !locked ? `<div class="alert warn" style="margin-bottom:14px"><i class="ti ti-lock-open"></i> The administrators have reopened this summary. ${esc(p.first_name)} can still see their results: whatever you save will be visible straight away.</div>` : ""}
     ${objOnly ? `<div class="hint" style="margin-bottom:14px"><i class="ti ti-eye-off"></i> You were not ${esc(p.first_name)}'s lead reviewer in this cycle: you can see the scores and the objectives that were set, not the written summary.</div>` : ""}
@@ -2434,7 +2434,7 @@ const ADMIN = {
       </div></div>`;
     return guide + `<div class="row" style="margin-bottom:14px;justify-content:flex-end"><button class="btn pri" onclick="editCycle(null)"><i class="ti ti-plus"></i> New cycle</button></div>
     ${CYCLES.length ? `<div class="card"><table><tr><th>Cycle</th><th>Type</th><th>Dates</th><th>Status</th><th>Progress</th><th>What the reviewee sees</th><th></th></tr>
-      ${CYCLES.map(c => { const v = c.visibility||{}; return `<tr><td class="b">${esc(cname(c, false))}<div class="xs mut">${esc(enExport(c.name))}</div></td><td><span class="pill pur">${c.kind==='cascade'?'Cascade (June)':'360 (December)'}</span></td><td class="xs">${fmtD(c.opens_at)} → ${fmtD(c.closes_at)}</td>
+      ${CYCLES.map(c => { const v = c.visibility||{}; return `<tr><td class="b">${esc(cname(c, false))}<div class="xs mut">${esc(enExport(c.name))}</div></td><td><span class="pill pur">${c.kind==='cascade'?'Cascade (June)':'360 (December)'}</span></td><td class="xs">${fmtD(c.opens_at)} → ${fmtD(c.closes_at)}${closeAtParts(c) ? `<div class="mut">closes automatically ${esc(closeMomentText(c))}</div>` : ""}</td>
         <td><select class="inp" style="width:auto;padding:4px 6px;font-size:12px" onchange="setCycleStatus('${c.id}',this.value)">${Object.entries(CYCLE_STATUS).filter(([k]) => k !== 'published' || c.status === 'published').map(([k,l])=>`<option value="${k}" ${c.status===k?"selected":""}>${l}</option>`).join("")}</select></td>
         <td><span class="flow" title="Created · Assigned · Open · Closed"><i class="on"></i><i class="${HAS_ASG[c.id]?'on':''}"></i><i class="${['open','closed','published'].includes(c.status)?'on':''}"></i><i class="${['closed','published'].includes(c.status)?'on':''}"></i></span>${(c.cycle_forms||[]).length?"":'<div class="xs n">no forms</div>'}</td>
         <td class="xs">Their lead reviewer's final summary${c.kind==='360'?" and their charts (averages, no names)":""}, once the lead clicks “Show results”</td>
@@ -2626,11 +2626,15 @@ function readDate(id){ const el = document.getElementById(id); const t = (el && 
   if((x = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/))) [, d, m, y] = x; else if((x = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) [, y, m, d] = x; else return undefined;
   const dt = new Date(Date.UTC(+y, +m - 1, +d)); if(dt.getUTCFullYear() !== +y || dt.getUTCMonth() !== +m - 1 || dt.getUTCDate() !== +d) return undefined;
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
+// Cierre automático a una hora concreta (Hugo, 20-nov-2026; SQL 43): cycles.close_at = fecha y hora de Madrid. Vacío = 23:59 de closes_at.
+const closeAtParts = c => { const v = c && c.close_at ? String(c.close_at) : ""; return v ? { d: v.slice(0, 10), t: v.slice(11, 16) } : null; };
+function closeMomentText(c){ const p = closeAtParts(c); return p ? `on ${fmtD(p.d)} at ${p.t}` : (c && c.closes_at ? `at the end of ${fmtD(c.closes_at)}` : ""); }
 function readCycleForm(){
   const g = x => document.getElementById(x);
   const mode = (document.querySelector('input[name="vmode"]:checked')||{}).value || "aggregate";
   return {
     name:g("cy_name").value.trim(), kind:g("cy_kind").value, period_label:g("cy_period").value.trim()||null, opens_at:readDate("cy_open"), closes_at:readDate("cy_close"),
+    close_d:readDate("cy_cad"), close_t:(g("cy_cat") || {}).value || "",
     forms:Object.fromEntries(FORM_SLOTS.map(sl => [sl.key, (g("cf_" + sl.key) || {}).value || ""])),
     visibility:{ reviewee_sees_peers:mode, peers_attributed:mode==="full", anon_threshold:parseInt(g("v_thr").value)||0, reviewee_sees_lead:g("v_lead").checked, peers_see_self:false, lead_after_peers:g("v_lap").checked, reviewee_picks:g("v_picks").checked }
   };
@@ -2674,8 +2678,9 @@ function editCycle(id){
   openModal(`<h2>${id?"Edit cycle":"New cycle"}</h2>
    ${id ? "" : `<div style="margin-top:12px"><label class="xs mut">Which review is it?</label><select class="inp" id="cy_tpl" onchange="applyTemplate(this.value)">${Object.entries(CYCLE_TEMPLATES).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join("")}</select><div class="alert warn" id="tpl_warn" style="margin-top:8px" hidden></div></div>`}
    <div class="two" style="margin-top:12px"><div><label class="xs mut">Name</label><input type="text" id="cy_name" value="${esc(c.name)}" placeholder="Performance Evaluation · December 2026"></div><div><label class="xs mut">Period being reviewed</label><input type="text" id="cy_period" value="${esc(c.period_label||"")}" placeholder="2026"></div>
-    <div><label class="xs mut">Opens on</label>${dateField("cy_open", c.opens_at)}</div><div><label class="xs mut">Closes on</label>${dateField("cy_close", c.closes_at)}</div></div>
-   <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. It closes by itself when its closing date ends (23:59, Madrid time), and you can also close it earlier by hand. The closing date is shown to everyone and used for the reminders.</div>
+    <div><label class="xs mut">Opens on</label>${dateField("cy_open", c.opens_at)}</div><div><label class="xs mut">Closes on <span class="xs mut">(shown to everyone and used for the reminders)</span></label>${dateField("cy_close", c.closes_at)}</div></div>
+   <div class="two"><div><label class="xs mut">Closes automatically at <span class="xs mut">(optional, Madrid time)</span></label><div class="row" style="gap:8px;flex-wrap:nowrap"><div style="flex:1;min-width:0">${dateField("cy_cad", (closeAtParts(c) || {}).d || "")}</div><input type="time" class="inp" id="cy_cat" value="${(closeAtParts(c) || {}).t || ""}" style="width:110px"></div></div><div></div></div>
+   <div class="xs mut" style="margin-top:6px"><i class="ti ti-clock"></i> A draft cycle opens by itself on its opening date (00:00, Madrid time); you can also open it earlier by hand. It closes by itself when its closing date ends (23:59, Madrid time) or, if you fill in “Closes automatically at”, at that exact date and time (for example, closing date 23/11 and closes automatically at 24/11 08:00, to give extra hours overnight). You can always close it earlier by hand.</div>
    <select id="cy_kind" hidden><option value="360" ${c.kind==='360'?"selected":""}>360</option><option value="cascade" ${c.kind==='cascade'?"selected":""}>cascade</option></select>
    <div class="summary" id="cy_summary"></div>
    <details id="adv" ${id?"":""} style="margin-top:14px"><summary style="cursor:pointer;font-weight:700;color:var(--ink);font-size:13px"><i class="ti ti-adjustments"></i> Change how it works <span class="mut" style="font-weight:500">· not usually needed</span></summary>
@@ -2704,7 +2709,13 @@ async function saveCycle(id){
   const f = readCycleForm();
   const row = { name:f.name, kind:f.kind, period_label:f.period_label, opens_at:f.opens_at, closes_at:f.closes_at, visibility:f.visibility };
   if(!row.name) return toast("Give the cycle a name", true);
-  if(row.opens_at === undefined || row.closes_at === undefined) return toast("Dates must be written as dd/mm/yyyy", true);
+  if(row.opens_at === undefined || row.closes_at === undefined || f.close_d === undefined) return toast("Dates must be written as dd/mm/yyyy", true);
+  if(f.close_t && !f.close_d) return toast("Choose the date of the automatic close as well as the time", true);
+  if(f.close_t && !/^\d{2}:\d{2}$/.test(f.close_t)) return toast("The time must be written as hh:mm", true);
+  // Sin hora → al acabar ese día (23:59). Sin fecha → como siempre (al acabar la fecha de cierre)
+  row.close_at = f.close_d ? `${f.close_d}T${f.close_t || "23:59"}:00` : null;
+  if(row.close_at && row.opens_at && row.close_at.slice(0, 10) < row.opens_at) return toast("The automatic close cannot be before the opening date", true);
+  if(row.close_at && row.closes_at && row.close_at.slice(0, 10) < row.closes_at) return toast("The automatic close cannot be before the closing date shown to everyone", true);
   let cid = id;
   if(id){ const { error } = await sb.from("cycles").update(row).eq("id", id); if(error) return err(error,"Could not save"); }
   else { const { data, error } = await sb.from("cycles").insert(row).select().single(); if(error) return err(error,"Could not create"); cid = data.id; }
