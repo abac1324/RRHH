@@ -1022,7 +1022,7 @@ PAGES.tasks = async function(){
   const taskCmp = (a, b) => (a.role==='self'?0:1) - (b.role==='self'?0:1) || peopleCmp(revOf(a), revOf(b));
   return `
   <div class="row" style="margin-bottom:18px;gap:14px">${av(ME,"lg")}<div><div class="hd">Hello, ${esc(ME.first_name)}</div><div class="mut">${esc(ME.position||"")} · ${TEAM_LABEL[ME.team]||""}</div></div>
-    <span style="flex:1"></span>${all.some(a => a.status === 'submitted') ? `<button class="btn sm" onclick="exportMyReviewsExcel()" title="All the reviews you have submitted, one sheet per cycle"><i class="ti ti-file-spreadsheet"></i> Excel of my reviews</button>` : ""}</div>
+    <span style="flex:1"></span>${all.length ? `<button class="btn sm" onclick="exportMyReviewsExcel()" title="All your reviews, one sheet per cycle with everyone you review (including what you have saved as draft)"><i class="ti ti-file-spreadsheet"></i> Excel of my reviews</button>` : ""}</div>
   <div class="grid g3" style="margin-bottom:18px">
     <div class="card kpi"><span class="v">${pending.length}</span><span class="l">Pending reviews</span><span class="d ${pending.length?'neg':''}">${pending.length ? "to complete" : "all up to date"}</span></div>
     <div class="card kpi"><span class="v">${open.filter(a=>a.status==="submitted").length}</span><span class="l">Submitted reviews</span><span class="d">in open cycles</span></div>
@@ -1941,12 +1941,16 @@ function unionQuestions(list){ const out = [], seen = new Set(); for(const a of 
 const codesOf = a => new Set(formQuestionsFor(a.form_id, a.role).map(q => q.code));
 // Nombres de hoja válidos (31 caracteres, sin []:*?/\) y sin repetir
 function sheetNamer(){ const used = new Set(); return raw => { let n = enExport(raw).replace(/[\[\]:*?\/\\]/g, "-").slice(0, 31); let k = n, i = 2; while(used.has(k)) k = n.slice(0, 28) + " " + (i++); used.add(k); return k; }; }
-// Excel de todas las reviews que YO he enviado (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden
+// Excel de mis reviews (Hugo, 08-sep-2026): una hoja por ciclo, una fila por persona evaluada, todas las preguntas en orden.
+// Hugo, 23-nov-2026: la hoja de cada ciclo sale SIEMPRE con todas las personas que me tocan, aunque no haya enviado nada
+// (pendiente: fila vacía con su estado; borrador: lo guardado hasta ahora, con «Draft» en Status).
 async function buildReviewsWorkbook(who, cycleId){
   who = who || ME; const soyYo = who.id === ME.id;   // «mine» ya está cogido dentro del bucle de filas
-  const all = (await assignmentsOf(who.id)).filter(a => a.status === 'submitted' && (!cycleId || a.cycle_id === cycleId));
+  const all = (await assignmentsOf(who.id)).filter(a => !cycleId || a.cycle_id === cycleId);
   if(!all.length) return null;
-  const { data:ans } = await sb.from("answers").select("*").in("assignment_id", all.map(a => a.id));
+  const sent = all.filter(a => a.status === 'submitted');
+  const started = all.filter(a => a.status !== 'pending');   // enviadas y borradores (Hugo, 23-nov-2026: también lo guardado en borrador)
+  const { data:ans } = started.length ? await sb.from("answers").select("*").in("assignment_id", started.map(a => a.id)) : { data:[] };
   const qById = {}; for(const f of FORMS) for(const sec of f.form_sections) for(const qq of sec.questions) qById[qq.id] = qq;
   await loadExcelJS();
   const wb = new ExcelJS.Workbook(); wb.creator = "Abac RRHH"; wb.created = new Date();
@@ -1957,9 +1961,9 @@ async function buildReviewsWorkbook(who, cycleId){
     const list = all.filter(a => a.cycle_id === c.id).sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewee).localeCompare(fullName(y.reviewee)));
     const allQ = unionQuestions(list);   // solo las preguntas de los cuestionarios que he respondido en este ciclo
     const ws = wb.addWorksheet(sheetName(c.period_label || c.name), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
-    title(ws, 1, c.name, 16); sub(ws, 2, `${soyYo ? "Reviews I have submitted" : "Reviews submitted"} · ${fullName(who)} · exported on ${fmtD(new Date())} · "—" = that question is not part of that review's questionnaire`);
+    title(ws, 1, c.name, 16); sub(ws, 2, `${soyYo ? "My reviews" : "Reviews"} · ${fullName(who)} · exported on ${fmtD(new Date())} · "—" = that question is not part of that review's questionnaire`);
     const FIRST = 5, TXT_W = 46, SC_W = 13;
-    const head = ["Reviewee", "Team", "Review type", "Submitted"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
+    const head = ["Reviewee", "Team", "Review type", "Status"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
     headRow(ws, 4, head, 4); ws.getRow(4).height = 48; let r = 5;
     for(const a of list){
       const by = {}; for(const an of (ans||[]).filter(x => x.assignment_id === a.id)){ const qq = qById[an.question_id]; if(qq) by[qq.code] = an.value_num != null ? an.value_num : (an.value_text || ""); }
@@ -1967,7 +1971,7 @@ async function buildReviewsWorkbook(who, cycleId){
       row.getCell(1).value = a.role === 'self' ? `${fullName(a.reviewee)}${soyYo ? " (me)" : ""}` : fullName(a.reviewee); row.getCell(1).font = { bold:true }; row.getCell(1).alignment = { vertical:"top" };
       row.getCell(2).value = TEAM_LABEL[a.reviewee.team] || ""; row.getCell(2).alignment = { vertical:"top" };
       row.getCell(3).value = ROLE_EN[a.role]; row.getCell(3).font = { size:9, color:{ argb:GREY } }; row.getCell(3).alignment = { vertical:"top" };
-      row.getCell(4).value = a.submitted_at ? fmtD(a.submitted_at) : ""; row.getCell(4).alignment = { vertical:"top", horizontal:"center" };
+      row.getCell(4).value = a.status === 'submitted' ? (a.submitted_at ? fmtD(a.submitted_at) : STATUS_EN.submitted) : STATUS_EN[a.status] || a.status; row.getCell(4).alignment = { vertical:"top", horizontal:"center" }; if(a.status !== 'submitted') row.getCell(4).font = { italic:true, size:9, color:{ argb:GREY } };
       let lines = 1;
       const mine = codesOf(a); allQ.forEach((qq, j) => { const cell = row.getCell(FIRST + j); if(!mine.has(qq.code)){ XL.na(cell); return; } const v = by[qq.code]; const ok = v != null && String(v).trim() !== "";
         if(qq.kind === 'scale'){ num(cell, ok ? Number(v) : null, false); cell.alignment = { horizontal:"center", vertical:"top" }; }
@@ -1979,15 +1983,15 @@ async function buildReviewsWorkbook(who, cycleId){
     ws.getColumn(1).width = 28; ws.getColumn(2).width = 13; ws.getColumn(3).width = 15; ws.getColumn(4).width = 11;
     allQ.forEach((qq, j) => ws.getColumn(FIRST + j).width = qq.kind === 'scale' ? SC_W : TXT_W);
   }
-  return { wb, filename: `${soyYo ? "My reviews" : "Reviews submitted"} - ${fullName(who)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"), n: all.length };
+  return { wb, filename: `${soyYo ? "My reviews" : "Reviews submitted"} - ${fullName(who)}.xlsx`.replace(/[\\/:*?"<>|]/g, "-"), n: all.length, sent: sent.length };
 }
 async function exportMyReviewsExcel(){
   toast("Preparing the Excel…");
   let built; try{ built = await buildReviewsWorkbook(); }catch(e){ return err(e, "Excel"); }
-  if(!built) return toast("You have not submitted any reviews yet");
+  if(!built) return toast("You have no reviews yet");
   const buf = await built.wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const u = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = u; el.download = enExport(built.filename); el.click(); URL.revokeObjectURL(u);
-  toast(`Excel: ${built.n} review${built.n > 1 ? 's' : ''}`);
+  toast(`Excel: ${built.n} review${built.n > 1 ? 's' : ''} · ${built.sent} submitted`);
 }
 // opts.summary === false: sin hoja Resumen (el Excel del lead, Hugo 08-sep-2026: solo una hoja por persona)
 async function buildCycleWorkbook(cycleId, revieweeId, opts){
