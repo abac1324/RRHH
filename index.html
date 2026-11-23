@@ -1960,7 +1960,8 @@ async function buildReviewsWorkbook(who, cycleId){
   for(const c of cycles){
     const list = all.filter(a => a.cycle_id === c.id).sort((x,y) => order[x.role] - order[y.role] || fullName(x.reviewee).localeCompare(fullName(y.reviewee)));
     const allQ = unionQuestions(list);   // solo las preguntas de los cuestionarios que he respondido en este ciclo
-    const ws = wb.addWorksheet(sheetName(c.period_label || c.name), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
+    // nombre de la hoja = año del ciclo (Dec 2026 no tiene period_label y salía «Performance Evaluation · Decemb»)
+    const ws = wb.addWorksheet(sheetName(c.kind === 'cascade' ? `MTF ${cycleYear(c)}` : (cycleYear(c) || c.name)), { views:[{ state:"frozen", xSplit:1, ySplit:4 }] });
     title(ws, 1, c.name, 16); sub(ws, 2, `${soyYo ? "My reviews" : "Reviews"} · ${fullName(who)} · exported on ${fmtD(new Date())} · "—" = that question is not part of that review's questionnaire`);
     const FIRST = 5, TXT_W = 46, SC_W = 13;
     const head = ["Reviewee", "Team", "Review type", "Status"].concat(allQ.map(qq => qq.kind === 'scale' ? qq.text.replace(/ and accountability| Technical/g, "") : qq.text));
